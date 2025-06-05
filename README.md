@@ -938,13 +938,13 @@ app.use(cors());
 app.use(express.json());
 
 const SHOP = 'fakestore-practice1.myshopify.com'; // ← update
-const TOKEN = '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'; // ← update
+const TOKEN = 'shpat_xxxxxxxxxxxxxxxxxxxxxxx'; // ← update
 
 // ✅ MySQL setup — update these fields
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: 'admin123', // or your MySQL password
+  password: '', // or your MySQL password
   database: 'shopifyadmin'
 });
 
