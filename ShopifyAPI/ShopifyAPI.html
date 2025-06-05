@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Shopify Admin Interface</title>
+  <style>
+    body { font-family: Arial; padding: 40px; }
+    h1 { margin-bottom: 10px; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tabs button {
+      padding: 10px 20px; cursor: pointer;
+      border: 1px solid #ccc; border-radius: 5px;
+      background-color: #f0f0f0;
+    }
+    .tabs button.active {
+      background-color: #007bff; color: white;
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .item {
+      border: 1px solid #ccc; border-radius: 6px;
+      padding: 20px; margin-bottom: 15px;
+      background: #fafafa; position: relative;
+    }
+
+    .product img {
+      max-width: 100px; float: left; margin-right: 20px;
+    }
+
+    .clear { clear: both; }
+
+    .buttons {
+      margin-top: 10px;
+    }
+
+    .buttons .btn {
+      margin-right: 10px;
+      padding: 8px 16px;
+      border: none;
+      border-radius: 5px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+
+    .btn-add { background-color: #28a745; color: white; }
+    .btn-add:hover { background-color: #218838; }
+
+    .btn-edit { background-color: #007bff; color: white; }
+    .btn-edit:hover { background-color: #0056b3; }
+
+    .btn-remove { background-color: #dc3545; color: white; }
+    .btn-remove:hover { background-color: #c82333; }
+
+    .btn[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    input, textarea {
+      width: 100%; margin: 6px 0;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>📦 Shopify Admin Panel</h1>
+  <div class="tabs">
+    <button onclick="showTab('products')" class="active">🛒 Products</button>
+    <button onclick="showTab('productsindb')">🗃️ Products in DB</button>
+    <button onclick="showTab('users')">👤 Users</button>
+    <button onclick="showTab('orders')">🛍️ Orders</button>
+    <button onclick="showTab('auth')">🔐 Auth Info</button>
+  </div>
+
+  <div id="products" class="tab-content active"></div>
+  <div id="productsindb" class="tab-content"></div>
+  <div id="users" class="tab-content"></div>
+  <div id="orders" class="tab-content"></div>
+  <div id="auth" class="tab-content"></div>
+
+  <script>
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      document.querySelector(`.tabs button[onclick="showTab('${tabId}')"]`).classList.add('active');
+    }
+
+    const dbProductIds = new Set();
+    let allProducts = [];
+
+    // ✅ Get products already in DB
+    fetch('http://localhost:3000/products-in-db')
+      .then(res => res.json())
+      .then(inDbProducts => {
+        inDbProducts.forEach(p => dbProductIds.add(p.id));
+        loadProducts();
+        renderProductsInDb(inDbProducts);
+      });
+
+    // ✅ Load products from Shopify
+    function loadProducts() {
+      fetch('http://localhost:3000/products')
+        .then(res => res.json())
+        .then(products => {
+          allProducts = products;
+          const container = document.getElementById('products');
+          container.innerHTML = '';
+          products.forEach(p => container.appendChild(renderProductCard(p)));
+        });
+    }
+
+    // ✅ Products in DB tab
+    function renderProductsInDb(dbProducts) {
+      const container = document.getElementById('productsindb');
+      container.innerHTML = '';
+      dbProducts.forEach(p => container.appendChild(renderProductCard(p, true)));
+    }
+
+    // ✅ Create product card
+    function renderProductCard(p, isDbTab = false) {
+      const div = document.createElement('div');
+      div.className = 'item product';
+      div.dataset.id = p.id;
+
+      const inDb = dbProductIds.has(p.id);
+
+      div.innerHTML = `
+        <img src="${p.image?.src || ''}">
+        <strong>${p.title}</strong><br>
+        Price: $${p.variants?.[0]?.price || p.price}<br>
+        Category: ${p.product_type || p.category}<br>
+        <p>${p.body_html || p.description}</p>
+        <div class="buttons">
+          <button class="btn btn-add" onclick="addToDB(event, '${p.id}')" ${inDb ? 'disabled' : ''}>Add to DB</button>
+          <button class="btn btn-edit" onclick="editProduct('${p.id}')">Edit</button>
+          <button class="btn btn-remove" onclick="removeFromDB(event, '${p.id}')" ${inDb ? '' : 'disabled'}>Remove</button>
+        </div>
+        <div class="clear"></div>
+      `;
+      return div;
+    }
+
+    function addToDB(e, id) {
+      e.preventDefault();
+      fetch(`http://localhost:3000/add-to-db/${id}`, { method: 'POST' })
+        .then(res => res.json())
+        .then(() => {
+          dbProductIds.add(Number(id));
+          updateAllCards(id);
+        });
+    }
+
+    function removeFromDB(e, id) {
+      e.preventDefault();
+      if (!confirm("Are you sure you want to remove this from DB?")) return;
+      fetch(`http://localhost:3000/remove/${id}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(() => {
+          dbProductIds.delete(Number(id));
+          updateAllCards(id);
+        });
+    }
+
+    function editProduct(id) {
+      const card = document.querySelector(`[data-id="${id}"]`);
+      const product = allProducts.find(p => p.id == id);
+      const price = product.variants?.[0]?.price || product.price;
+
+      card.innerHTML = `
+        <strong>Edit Product</strong><br>
+        <input id="etitle${id}" value="${product.title}">
+        <input id="eprice${id}" value="${price}">
+        <input id="ecategory${id}" value="${product.product_type || product.category}">
+        <input id="eimage${id}" value="${product.image?.src || product.image}">
+        <textarea id="edesc${id}">${product.body_html || product.description}</textarea>
+        <div class="buttons">
+          <button class="btn btn-edit" onclick="saveEdit('${id}')">Save</button>
+          <button class="btn btn-remove" onclick="cancelEdit('${id}')">Cancel</button>
+        </div>
+      `;
+    }
+
+    function saveEdit(id) {
+      const data = {
+        title: document.getElementById('etitle' + id).value,
+        price: document.getElementById('eprice' + id).value,
+        category: document.getElementById('ecategory' + id).value,
+        image: document.getElementById('eimage' + id).value,
+        description: document.getElementById('edesc' + id).value
+      };
+
+      fetch(`http://localhost:3000/edit/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+        .then(res => res.json())
+        .then(() => {
+          Object.assign(allProducts.find(p => p.id == id), data);
+          updateAllCards(id);
+        });
+    }
+
+    function cancelEdit(id) {
+      if (confirm("Are you sure? All changes will be lost.")) updateAllCards(id);
+    }
+
+    function updateAllCards(id) {
+      document.querySelectorAll(`[data-id="${id}"]`).forEach(el => {
+        const prod = allProducts.find(p => p.id == id);
+        const replacement = renderProductCard(prod, el.parentElement.id === 'productsindb');
+        el.replaceWith(replacement);
+      });
+    }
+
+    // ✅ Customers
+    fetch('http://localhost:3000/customers')
+      .then(res => res.json())
+      .then(users => {
+        const container = document.getElementById('users');
+        users.forEach(u => {
+          const div = document.createElement('div');
+          div.className = 'item';
+          div.innerHTML = `<strong>${u.first_name} ${u.last_name}</strong><br>Email: ${u.email}`;
+          container.appendChild(div);
+        });
+      });
+
+    // ✅ Orders
+    fetch('http://localhost:3000/orders')
+      .then(res => res.json())
+      .then(orders => {
+        const container = document.getElementById('orders');
+        orders.forEach(o => {
+          const div = document.createElement('div');
+          div.className = 'item';
+          div.innerHTML = `<strong>Order ID:</strong> ${o.id}<br>Total: $${o.total_price}`;
+          container.appendChild(div);
+        });
+      });
+
+    // ✅ Auth Info
+    fetch('http://localhost:3000/shop')
+      .then(res => res.json())
+      .then(data => {
+        const container = document.getElementById('auth');
+        const s = data.shop;
+        container.innerHTML = `
+          <div class="item">
+            <strong>Shop:</strong> ${s.name}<br>
+            <strong>Domain:</strong> ${s.myshopify_domain}<br>
+            <strong>Email:</strong> ${s.email}
+          </div>
+        `;
+      });
+  </script>
+</body>
+</html>
