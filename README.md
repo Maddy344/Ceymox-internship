@@ -937,8 +937,8 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-const SHOP = 'fakestore-practice1.myshopify.com'; // ← update
-const TOKEN = 'shpat_xxxxxxxxxxxxxxxxxxxxxxx'; // ← update
+const SHOP = ''; // ← update
+const TOKEN = ''; // ← update
 
 // ✅ MySQL setup — update these fields
 const db = mysql.createConnection({
