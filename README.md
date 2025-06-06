@@ -937,14 +937,14 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.json());
 
-const SHOP = ''; // ← update
-const TOKEN = ''; // ← update
+const SHOP = 'fakestore-practice1.myshopify.com'; // ← update
+const TOKEN = 'shpat_YOUR_SHOPIFY_ACCESS_TOKEN'; // ← update
 
 // ✅ MySQL setup — update these fields
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '', // or your MySQL password
+  password: 'admin123', // or your MySQL password
   database: 'shopifyadmin'
 });
 

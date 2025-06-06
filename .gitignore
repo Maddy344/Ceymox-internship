@@ -1,0 +1,9 @@
+# Node modules
+node_modules/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+Shopify.env # If you still have this file, ignore it too
