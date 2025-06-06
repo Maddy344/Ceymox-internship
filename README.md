@@ -938,7 +938,7 @@ app.use(cors());
 app.use(express.json());
 
 const SHOP = 'fakestore-practice1.myshopify.com'; // ← update
-const TOKEN = 'shpat_YOUR_SHOPIFY_ACCESS_TOKEN'; // ← update
+const TOKEN = 'process.env.SHOPIFY_TOKEN'; // ← update
 
 // ✅ MySQL setup — update these fields
 const db = mysql.createConnection({
