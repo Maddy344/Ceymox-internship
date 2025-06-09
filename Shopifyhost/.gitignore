@@ -8,3 +8,5 @@ node_modules/
 .env
 Shopify.env # If you still have this file, ignore it too
 
+
+
