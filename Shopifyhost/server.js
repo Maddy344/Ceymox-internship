@@ -8,6 +8,10 @@ const mysql = require('mysql2');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.get('/', (req, res) => {
+  res.send('Hello from Vercel backend!');
+});
+
 app.use(cors());
 app.use(express.json());
 
@@ -287,8 +291,6 @@ app.get('/shop', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`📦 Shop: ${SHOP}`);
-  console.log(`🔐 Using environment variables for security`);
+module.exports = app;
+
 });
