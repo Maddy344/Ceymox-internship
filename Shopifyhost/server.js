@@ -8,10 +8,6 @@ const mysql = require('mysql2');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.get('/', (req, res) => {
-  res.send('Hello from Vercel backend!');
-});
-
 app.use(cors());
 app.use(express.json());
 
@@ -46,7 +42,7 @@ db.connect((err) => {
 // ✅ Fetch all products from Shopify
 app.get('/products', async (req, res) => {
   try {
-    const response =await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
+    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
     
@@ -107,13 +103,13 @@ app.post('/add-to-db/:id', async (req, res) => {
     const productDescription = p.body_html || '';
     const productImage = (p.image && p.image.src) ? p.image.src : '';
 
-    db.query(
-  `INSERT INTO products (id, title, price, description, image)
-   VALUES (?, ?, ?, ?, ?)
-   ON DUPLICATE KEY UPDATE title=?, price=?, description=?, image=?`,
-  [p.id, productTitle, productPrice, productDescription, productImage,
-   productTitle, productPrice, productDescription, productImage]
-);
+    db.query(`
+      INSERT INTO products (id, title, price, description, image)
+      VALUES (?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE title=?, price=?, description=?, image=?`,
+      [p.id, productTitle, productPrice, productDescription, productImage,
+       productTitle, productPrice, productDescription, productImage]);
+
     res.json({ message: 'Product added to DB and tagged.' });
   } catch (error) {
     console.error('Error adding product to DB:', error.message);
@@ -194,10 +190,10 @@ app.put('/edit/:id', async (req, res) => {
     );
 
   } catch (error) {
-      console.error('Error updating product:', error.message);
+    console.error('Error updating product:', error.message);
     if (error.response) {
-    console.error('Shopify API error:', error.response.data);
-  }
+      console.error('Shopify API error:', error.response.data);
+    }
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
@@ -291,9 +287,8 @@ app.get('/shop', async (req, res) => {
   }
 });
 
-module.exports = app;
-
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`📦 Shop: ${SHOP}`);
+  console.log(`🔐 Using environment variables for security`);
 });
-
