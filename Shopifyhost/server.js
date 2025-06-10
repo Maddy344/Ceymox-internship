@@ -1,11 +1,9 @@
 // server.js
-import dotenv from 'dotenv';
-import express from 'express';
-import axios from 'axios';
-import cors from 'cors';
-import mysql from 'mysql2';
-
-dotenv.config();
+require('dotenv').config();
+const express = require('express');
+const axios = require('axios');
+const cors = require('cors');
+const mysql = require('mysql2');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -25,24 +23,21 @@ if (!SHOP || !TOKEN) {
 }
 
 // ✅ MySQL setup using environment variables
-const db = mysql.createPool({
+const db = mysql.createConnection({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME || 'shopifyadmin'
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
 });
 
 // Test database connection
-try {
-  const conn = await pool.getConnection();
-  console.log('✅ Connected to Railway MySQL');
-  conn.release();
-} catch (err) {
-  console.error('❌ Database connection failed:', err);
-}
+db.connect((err) => {
+  if (err) {
+    console.error('❌ Database connection failed:', err.message);
+    process.exit(1);
+  }
+  console.log('✅ Connected to MySQL database');
+});
 
 // ✅ Fetch all products from Shopify
 app.get('/products', async (req, res) => {
