@@ -11,26 +11,25 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Use environment variables instead of hardcoded values
+// Load Shopify credentials from .env
 const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_TOKEN;
 
-// Check if required environment variables are set
+// Check .env values
 if (!SHOP || !TOKEN) {
-  console.error('❌ Missing required environment variables. Please check your .env file.');
-  console.error('Required: SHOPIFY_SHOP, SHOPIFY_TOKEN');
+  console.error('❌ Missing required environment variables. Check your .env file.');
   process.exit(1);
 }
 
-// ✅ MySQL setup using environment variables
+// ✅ MySQL Connection
 const db = mysql.createConnection({
   host: process.env.DB_HOST || 'localhost',
   user: process.env.DB_USER || 'root',
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'shopifyadmin'
+  database: process.env.DB_NAME || 'shopifyadmin',
+  port: process.env.MYSQL_PORT
 });
 
-// Test database connection
 db.connect((err) => {
   if (err) {
     console.error('❌ Database connection failed:', err.message);
@@ -39,31 +38,15 @@ db.connect((err) => {
   console.log('✅ Connected to MySQL database');
 });
 
-// ✅ Fetch all products from Shopify
-app.get('/products', async (req, res) => {
-  try {
-    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
-      headers: { 'X-Shopify-Access-Token': TOKEN }
-    });
-    
-    // Debug logging - remove this after fixing
-    if (response.data.products.length > 0) {
-      const sampleProduct = response.data.products[0];
-      console.log('Sample product fields:');
-      console.log('- product_type:', sampleProduct.product_type);
-      console.log('- vendor:', sampleProduct.vendor);
-      console.log('- tags:', sampleProduct.tags);
-      console.log('- Full product:', JSON.stringify(sampleProduct, null, 2));
-    }
-    
-    res.json(response.data.products);
-  } catch (error) {
-    console.error('Error fetching products:', error.message);
-    res.status(500).json({ error: 'Failed to fetch products' });
-  }
+// ✅ Get all MySQL products
+app.get('/api/products', (req, res) => {
+  db.query('SELECT * FROM products', (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
 });
 
-// ✅ Fetch products tagged "in-db"
+// ✅ Get products with "in-db" tag from Shopify
 app.get('/products-in-db', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
@@ -79,7 +62,7 @@ app.get('/products-in-db', async (req, res) => {
   }
 });
 
-// ✅ Add product to DB (tag Shopify + insert to MySQL)
+// ✅ Add product to MySQL + tag in Shopify
 app.post('/add-to-db/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -97,7 +80,6 @@ app.post('/add-to-db/:id', async (req, res) => {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
 
-    // Get proper values with fallbacks
     const productTitle = p.title || '';
     const productPrice = (p.variants && p.variants[0]) ? p.variants[0].price : '0.00';
     const productDescription = p.body_html || '';
@@ -117,93 +99,62 @@ app.post('/add-to-db/:id', async (req, res) => {
   }
 });
 
-// ✅ Edit product in MySQL AND Shopify
+// ✅ Edit product in both Shopify and MySQL
 app.put('/edit/:id', async (req, res) => {
   try {
     const { title, price, image, description } = req.body;
     const id = req.params.id;
 
-    console.log('Editing product:', id, 'with data:', { title, price, image, description });
-
-    // First, get the current product from Shopify to preserve other data
     const shopifyResponse = await axios.get(`https://${SHOP}/admin/api/2023-10/products/${id}.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
     const currentProduct = shopifyResponse.data.product;
-    
-    console.log('Current product variants:', currentProduct.variants);
 
-    // Update the product in Shopify
     const updatedProduct = {
       id: parseInt(id),
-      title: title,
+      title,
       body_html: description,
-      variants: currentProduct.variants.map((variant, index) => ({
-        id: variant.id, // Important: include the variant ID
-        price: parseFloat(price).toFixed(2), // Update all variants with the same price
-        inventory_quantity: variant.inventory_quantity,
-        option1: variant.option1,
-        option2: variant.option2,
-        option3: variant.option3,
-        sku: variant.sku,
-        barcode: variant.barcode,
-        weight: variant.weight,
-        weight_unit: variant.weight_unit,
-        requires_shipping: variant.requires_shipping,
-        taxable: variant.taxable
+      variants: currentProduct.variants.map(variant => ({
+        ...variant,
+        price: parseFloat(price).toFixed(2)
       }))
     };
 
-    // If image is provided and different, update it
     if (image && image !== currentProduct.image?.src) {
       updatedProduct.images = [{ src: image }];
     }
 
-    console.log('Updating Shopify with:', updatedProduct);
-
     const shopifyUpdateResponse = await axios.put(`https://${SHOP}/admin/api/2023-10/products/${id}.json`, {
       product: updatedProduct
     }, {
-      headers: { 
+      headers: {
         'X-Shopify-Access-Token': TOKEN,
         'Content-Type': 'application/json'
       }
     });
 
-    console.log('Shopify update successful');
-
-    // Update in MySQL database (remove category field)
     db.query(
       `UPDATE products SET title=?, price=?, description=?, image=? WHERE id=?`,
       [title, price, description, image, id],
       (err) => {
-        if (err) {
-          console.error('MySQL update error:', err);
-          return res.status(500).json({ error: 'Failed to update database' });
-        }
-        console.log('MySQL update successful');
-        res.json({ 
-          message: 'Product updated successfully in both Shopify and database',
+        if (err) return res.status(500).json({ error: 'Failed to update database' });
+        res.json({
+          message: 'Product updated in Shopify and MySQL',
           updatedProduct: shopifyUpdateResponse.data.product
         });
       }
     );
-
   } catch (error) {
     console.error('Error updating product:', error.message);
-    if (error.response) {
-      console.error('Shopify API error:', error.response.data);
-    }
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
-// ✅ Remove product from DB and untag in Shopify
+// ✅ Delete product from DB and untag in Shopify
 app.delete('/remove/:id', async (req, res) => {
   try {
     const id = req.params.id;
 
-    // Untag in Shopify
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products/${id}.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
@@ -212,29 +163,24 @@ app.delete('/remove/:id', async (req, res) => {
       .split(',')
       .map(t => t.trim())
       .filter(t => t.toLowerCase() !== 'in-db');
-    
+
     await axios.put(`https://${SHOP}/admin/api/2023-10/products/${id}.json`, {
       product: { id, tags: filteredTags.join(',') }
     }, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
 
-    // Delete from MySQL
     db.query(`DELETE FROM products WHERE id=?`, [id], (err) => {
-      if (err) {
-        console.error('MySQL delete error:', err);
-        return res.status(500).json({ error: 'Failed to remove from database' });
-      }
-      res.json({ message: 'Removed from DB and untagged' });
+      if (err) return res.status(500).json({ error: 'Failed to remove from database' });
+      res.json({ message: 'Removed from DB and untagged in Shopify' });
     });
-
   } catch (error) {
     console.error('Error removing product:', error.message);
     res.status(500).json({ error: 'Failed to remove product' });
   }
 });
 
-// ✅ Debug endpoint to see product structure
+// ✅ Debug: Shopify product by ID
 app.get('/debug/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -248,7 +194,7 @@ app.get('/debug/:id', async (req, res) => {
   }
 });
 
-// ✅ Fetch customers
+// ✅ Customers
 app.get('/customers', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/customers.json`, {
@@ -261,7 +207,7 @@ app.get('/customers', async (req, res) => {
   }
 });
 
-// ✅ Fetch orders
+// ✅ Orders
 app.get('/orders', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/orders.json`, {
@@ -274,7 +220,7 @@ app.get('/orders', async (req, res) => {
   }
 });
 
-// ✅ Fetch shop info
+// ✅ Shop Info
 app.get('/shop', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/shop.json`, {
@@ -287,8 +233,9 @@ app.get('/shop', async (req, res) => {
   }
 });
 
+// ✅ Server listener
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
   console.log(`📦 Shop: ${SHOP}`);
-  console.log(`🔐 Using environment variables for security`);
+  console.log(`🔐 Environment variables in use`);
 });
