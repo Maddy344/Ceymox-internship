@@ -44,36 +44,27 @@ if (!SHOP || !TOKEN) {
 }
 
 // MySQL connection pool for better performance with serverless
+// MySQL connection pool for better performance with serverless
 let pool;
 async function getConnection() {
   if (!pool) {
-    // Use either MYSQL_PORT or DB_PORT, whichever is available
-    const port = process.env.MYSQL_PORT || process.env.DB_PORT || '3306';
-    
-    console.log('Creating new connection pool with:', {
-      host: process.env.DB_HOST,
-      port: port,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD ? '***' : undefined,
-      database: process.env.DB_NAME
-    });
-    
+    // Hardcode the connection details directly
     pool = mysql.createPool({
-      host: process.env.DB_HOST,
-      port: parseInt(port),
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
+      host: 'maglev.proxy.rlwy.net',
+      port: 24081,
+      user: 'root',
+      password: 'klArdGXdTUGVInEzfJEBzKLIwLpVZcGE',
+      database: 'railway',
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0,
-      ssl: process.env.DB_SSL === 'true' ? {
-        rejectUnauthorized: false
-      } : undefined
+      queueLimit: 0
     });
+    
+    console.log('Created connection pool to Railway MySQL');
   }
   return pool;
 }
+
 
 // Test database connection
 async function testConnection() {
