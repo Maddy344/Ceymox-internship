@@ -1,9 +1,11 @@
-// server.js
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const mysql = require('mysql2');
+// server.js (ES Modules version)
+import express from 'express';
+import axios from 'axios';
+import cors from 'cors';
+import mysql from 'mysql2/promise';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,42 +13,63 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Load Shopify credentials from .env
 const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_TOKEN;
 
-// Check .env values
 if (!SHOP || !TOKEN) {
-  console.error('❌ Missing required environment variables. Check your .env file.');
+  console.error('❌ Missing required environment variables. Please check your .env file.');
+  console.error('Required: SHOPIFY_SHOP, SHOPIFY_TOKEN');
   process.exit(1);
 }
 
-// ✅ MySQL Connection
-const db = mysql.createConnection({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME || 'shopifyadmin',
-  port: process.env.MYSQL_PORT
-});
-
-db.connect((err) => {
-  if (err) {
-    console.error('❌ Database connection failed:', err.message);
-    process.exit(1);
+// MySQL connection pool for better performance with serverless
+let pool;
+async function getConnection() {
+  if (!pool) {
+    pool = mysql.createPool({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME || 'shopifyadmin',
+      port: process.env.MYSQL_PORT,
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    });
   }
-  console.log('✅ Connected to MySQL database');
+  return pool;
+}
+
+// Test database connection
+async function testConnection() {
+  try {
+    const connection = await getConnection();
+    const [rows] = await connection.query('SELECT 1');
+    console.log('✅ Connected to MySQL database');
+    return true;
+  } catch (err) {
+    console.error('❌ Database connection failed:', err.message);
+    return false;
+  }
+}
+
+// Initialize database
+testConnection();
+
+// ✅ Fetch all products from Shopify
+app.get('/products', async (req, res) => {
+  try {
+    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
+      headers: { 'X-Shopify-Access-Token': TOKEN }
+    });
+    res.json(response.data.products);
+  } catch (error) {
+    console.error('Error fetching products:', error.message);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
 });
 
-// ✅ Get all MySQL products
-app.get('/api/products', (req, res) => {
-  db.query('SELECT * FROM products', (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
-  });
-});
-
-// ✅ Get products with "in-db" tag from Shopify
+// ✅ Fetch products tagged "in-db"
 app.get('/products-in-db', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
@@ -62,7 +85,7 @@ app.get('/products-in-db', async (req, res) => {
   }
 });
 
-// ✅ Add product to MySQL + tag in Shopify
+// ✅ Add product to DB (tag Shopify + insert to MySQL)
 app.post('/add-to-db/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -85,7 +108,8 @@ app.post('/add-to-db/:id', async (req, res) => {
     const productDescription = p.body_html || '';
     const productImage = (p.image && p.image.src) ? p.image.src : '';
 
-    db.query(`
+    const connection = await getConnection();
+    await connection.query(`
       INSERT INTO products (id, title, price, description, image)
       VALUES (?, ?, ?, ?, ?)
       ON DUPLICATE KEY UPDATE title=?, price=?, description=?, image=?`,
@@ -99,7 +123,7 @@ app.post('/add-to-db/:id', async (req, res) => {
   }
 });
 
-// ✅ Edit product in both Shopify and MySQL
+// ✅ Edit product in MySQL AND Shopify
 app.put('/edit/:id', async (req, res) => {
   try {
     const { title, price, image, description } = req.body;
@@ -112,11 +136,21 @@ app.put('/edit/:id', async (req, res) => {
 
     const updatedProduct = {
       id: parseInt(id),
-      title,
+      title: title,
       body_html: description,
-      variants: currentProduct.variants.map(variant => ({
-        ...variant,
-        price: parseFloat(price).toFixed(2)
+      variants: currentProduct.variants.map((variant) => ({
+        id: variant.id,
+        price: parseFloat(price).toFixed(2),
+        inventory_quantity: variant.inventory_quantity,
+        option1: variant.option1,
+        option2: variant.option2,
+        option3: variant.option3,
+        sku: variant.sku,
+        barcode: variant.barcode,
+        weight: variant.weight,
+        weight_unit: variant.weight_unit,
+        requires_shipping: variant.requires_shipping,
+        taxable: variant.taxable
       }))
     };
 
@@ -133,24 +167,26 @@ app.put('/edit/:id', async (req, res) => {
       }
     });
 
-    db.query(
+    const connection = await getConnection();
+    await connection.query(
       `UPDATE products SET title=?, price=?, description=?, image=? WHERE id=?`,
-      [title, price, description, image, id],
-      (err) => {
-        if (err) return res.status(500).json({ error: 'Failed to update database' });
-        res.json({
-          message: 'Product updated in Shopify and MySQL',
-          updatedProduct: shopifyUpdateResponse.data.product
-        });
-      }
+      [title, price, description, image, id]
     );
+
+    res.json({
+      message: 'Product updated successfully in both Shopify and database',
+      updatedProduct: shopifyUpdateResponse.data.product
+    });
   } catch (error) {
     console.error('Error updating product:', error.message);
+    if (error.response) {
+      console.error('Shopify API error:', error.response.data);
+    }
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
-// ✅ Delete product from DB and untag in Shopify
+// ✅ Remove product from DB and untag in Shopify
 app.delete('/remove/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -170,17 +206,17 @@ app.delete('/remove/:id', async (req, res) => {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
 
-    db.query(`DELETE FROM products WHERE id=?`, [id], (err) => {
-      if (err) return res.status(500).json({ error: 'Failed to remove from database' });
-      res.json({ message: 'Removed from DB and untagged in Shopify' });
-    });
+    const connection = await getConnection();
+    await connection.query(`DELETE FROM products WHERE id=?`, [id]);
+    
+    res.json({ message: 'Removed from DB and untagged' });
   } catch (error) {
     console.error('Error removing product:', error.message);
     res.status(500).json({ error: 'Failed to remove product' });
   }
 });
 
-// ✅ Debug: Shopify product by ID
+// ✅ Debug endpoint to see product structure
 app.get('/debug/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -194,7 +230,7 @@ app.get('/debug/:id', async (req, res) => {
   }
 });
 
-// ✅ Customers
+// ✅ Fetch customers
 app.get('/customers', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/customers.json`, {
@@ -207,7 +243,7 @@ app.get('/customers', async (req, res) => {
   }
 });
 
-// ✅ Orders
+// ✅ Fetch orders
 app.get('/orders', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/orders.json`, {
@@ -220,7 +256,7 @@ app.get('/orders', async (req, res) => {
   }
 });
 
-// ✅ Shop Info
+// ✅ Fetch shop info
 app.get('/shop', async (req, res) => {
   try {
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/shop.json`, {
@@ -233,9 +269,19 @@ app.get('/shop', async (req, res) => {
   }
 });
 
-// ✅ Server listener
-app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
-  console.log(`📦 Shop: ${SHOP}`);
-  console.log(`🔐 Environment variables in use`);
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
 });
+
+// Export for serverless environments
+export default app;
+
+// Start server if this file is run directly
+if (import.meta.url === import.meta.main) {
+  app.listen(PORT, () => {
+    console.log(`🚀 Server running at http://localhost:${PORT}`);
+    console.log(`📦 Shop: ${SHOP}`);
+    console.log(`🔐 Using environment variables for security`);
+  });
+}
