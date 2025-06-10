@@ -4,13 +4,34 @@ import axios from 'axios';
 import cors from 'cors';
 import mysql from 'mysql2/promise';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import path from 'path';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Load .env file from project root
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+
+// Log environment variables for debugging
+console.log('Environment variables loaded:', {
+  DB_HOST: process.env.DB_HOST,
+  MYSQL_PORT: process.env.MYSQL_PORT,
+  DB_PORT: process.env.DB_PORT,
+  DB_USER: process.env.DB_USER,
+  DB_NAME: process.env.DB_NAME,
+  SHOPIFY_SHOP: process.env.SHOPIFY_SHOP
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+app.use(cors({
+  origin: '*', // Update with your Vercel frontend URL in production
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
 app.use(express.json());
 
 const SHOP = process.env.SHOPIFY_SHOP;
@@ -26,15 +47,29 @@ if (!SHOP || !TOKEN) {
 let pool;
 async function getConnection() {
   if (!pool) {
+    // Use either MYSQL_PORT or DB_PORT, whichever is available
+    const port = process.env.MYSQL_PORT || process.env.DB_PORT || '3306';
+    
+    console.log('Creating new connection pool with:', {
+      host: process.env.DB_HOST,
+      port: port,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD ? '***' : undefined,
+      database: process.env.DB_NAME
+    });
+    
     pool = mysql.createPool({
-      host: process.env.DB_HOST || 'localhost',
-      user: process.env.DB_USER || 'root',
+      host: process.env.DB_HOST,
+      port: parseInt(port),
+      user: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME || 'shopifyadmin',
-      port: process.env.MYSQL_PORT,
+      database: process.env.DB_NAME,
       waitForConnections: true,
       connectionLimit: 10,
-      queueLimit: 0
+      queueLimit: 0,
+      ssl: process.env.DB_SSL === 'true' ? {
+        rejectUnauthorized: false
+      } : undefined
     });
   }
   return pool;
@@ -53,8 +88,31 @@ async function testConnection() {
   }
 }
 
-// Initialize database
-testConnection();
+// Initialize database tables if they don't exist
+async function initializeDatabase() {
+  try {
+    const connection = await getConnection();
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id BIGINT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        price DECIMAL(10,2) NOT NULL,
+        description TEXT,
+        image VARCHAR(1024)
+      )
+    `);
+    console.log('✅ Database tables initialized');
+  } catch (err) {
+    console.error('❌ Failed to initialize database tables:', err.message);
+  }
+}
+
+// Initialize the database on startup
+testConnection().then(connected => {
+  if (connected) {
+    initializeDatabase();
+  }
+});
 
 // ✅ Fetch all products from Shopify
 app.get('/products', async (req, res) => {
