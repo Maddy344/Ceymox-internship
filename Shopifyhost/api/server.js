@@ -1,9 +1,11 @@
 // server.js
-require('dotenv').config();
-const express = require('express');
-const axios = require('axios');
-const cors = require('cors');
-const mysql = require('mysql2');
+import dotenv from 'dotenv';
+import express from 'express';
+import axios from 'axios';
+import cors from 'cors';
+import mysql from 'mysql2';
+
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
