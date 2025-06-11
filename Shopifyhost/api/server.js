@@ -29,7 +29,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: ['https://ceymox-internship.vercel.app', 'http://localhost:3000'],
+  origin: ['https://ceymox-internship-zvbm.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
@@ -355,7 +355,13 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Remove the previous attempt to add API prefix
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Catch-all route to serve index.html for client-side routing
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // Export for serverless environments
 export default app;
