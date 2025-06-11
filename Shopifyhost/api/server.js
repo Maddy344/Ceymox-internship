@@ -403,10 +403,9 @@ if (import.meta.url === import.meta.main) {
     console.log(`🔐 Using environment variables for security`);
   });
 }
-    }
+    
     res.status(500).json({ error: 'Failed to update product' });
-  }
-});
+  
 
 // Supabase routes
 
