@@ -323,6 +323,9 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// Add a prefix to all routes for Vercel deployment
+app.use('/api', app._router);
+
 // Export for serverless environments
 export default app;
 
