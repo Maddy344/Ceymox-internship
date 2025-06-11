@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import path from 'path';
+import { createClient } from '@supabase/supabase-js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -22,14 +23,16 @@ console.log('Environment variables loaded:', {
   DB_USER: process.env.DB_USER,
   DB_NAME: process.env.DB_NAME,
   SHOPIFY_SHOP: process.env.SHOPIFY_SHOP,
-  SHOPIFY_TOKEN: process.env.SHOPIFY_TOKEN ? 'Present (hidden for security)' : 'MISSING'
+  SHOPIFY_TOKEN: process.env.SHOPIFY_TOKEN ? 'Present (hidden for security)' : 'MISSING',
+  SUPABASE_URL: process.env.SUPABASE_URL ? 'Present' : 'MISSING',
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'Present (hidden for security)' : 'MISSING'
 });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: ['https://ceymox-internship-zvbm.vercel.app', 'http://localhost:3000'],
+  origin: ['https://ceymox-internship-zvbm.vercel.app', 'http://localhost:3000', 'https://ceymox-internship-hosting.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
@@ -64,6 +67,25 @@ async function getConnection() {
     console.log('Created connection pool to Railway MySQL');
   }
   return pool;
+}
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
+
+// Function to test Supabase connection
+async function testSupabaseConnection() {
+  try {
+    const { data, error } = await supabase.from('products').select('count()', { count: 'exact' }).limit(1);
+    if (error) throw error;
+    console.log('✅ Connected to Supabase database');
+    return true;
+  } catch (err) {
+    console.error('❌ Supabase connection failed:', err.message);
+    return false;
+  }
 }
 
 
@@ -103,6 +125,13 @@ async function initializeDatabase() {
 testConnection().then(connected => {
   if (connected) {
     initializeDatabase();
+  }
+});
+
+// Test Supabase connection
+testSupabaseConnection().then(connected => {
+  if (connected) {
+    console.log('Supabase is ready to use');
   }
 });
 
@@ -374,3 +403,51 @@ if (import.meta.url === import.meta.main) {
     console.log(`🔐 Using environment variables for security`);
   });
 }
+    }
+    res.status(500).json({ error: 'Failed to update product' });
+  }
+});
+
+// Supabase routes
+
+// Get all products from Supabase
+app.get('/supabase/products', async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*');
+    
+    if (error) throw error;
+    
+    console.log(`Found ${data.length} products in Supabase`);
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching products from Supabase:', error.message);
+    res.status(500).json({ error: 'Failed to fetch products from Supabase' });
+  }
+});
+
+// Add product to Supabase
+app.post('/supabase/add-product', async (req, res) => {
+  try {
+    const { title, price, description, image } = req.body;
+    
+    const { data, error } = await supabase
+      .from('products')
+      .insert([
+        { title, price, description, image }
+      ])
+      .select();
+    
+    if (error) throw error;
+    
+    res.json({ message: 'Product added to Supabase', product: data[0] });
+  } catch (error) {
+    console.error('Error adding product to Supabase:', error.message);
+    res.status(500).json({ error: 'Failed to add product to Supabase' });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
