@@ -101,6 +101,11 @@
   <div id="auth" class="tab-content"></div>
 
   <script>
+    // Base API URL - change from localhost to Vercel URL when deployed
+    const API_BASE_URL = window.location.hostname === 'localhost' 
+      ? 'http://localhost:3000' 
+      : window.location.origin;
+      
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
@@ -136,7 +141,7 @@
     }
 
     // ✅ Get products already in DB
-    fetch('http://localhost:3000/products-in-db')
+    fetch(`${API_BASE_URL}/products-in-db`)
       .then(res => res.json())
       .then(inDbProducts => {
         inDbProducts.forEach(p => dbProductIds.add(p.id));
@@ -149,7 +154,7 @@
 
     // ✅ Load products from Shopify
     function loadProducts() {
-      fetch('http://localhost:3000/products')
+      fetch(`${API_BASE_URL}/products`)
         .then(res => res.json())
         .then(products => {
           allProducts = products;
@@ -175,7 +180,7 @@
 
     // ✅ Refresh Products in DB tab
     function refreshProductsInDb() {
-      fetch('http://localhost:3000/products-in-db')
+      fetch(`${API_BASE_URL}/products-in-db`)
         .then(res => res.json())
         .then(inDbProducts => {
           renderProductsInDb(inDbProducts);
@@ -216,7 +221,7 @@
 
     function addToDB(e, id) {
       e.preventDefault();
-      fetch(`http://localhost:3000/add-to-db/${id}`, { method: 'POST' })
+      fetch(`${API_BASE_URL}/add-to-db/${id}`, { method: 'POST' })
         .then(res => res.json())
         .then(() => {
           dbProductIds.add(Number(id));
@@ -232,7 +237,7 @@
     function removeFromDB(e, id) {
       e.preventDefault();
       if (!confirm("Are you sure you want to remove this from DB?")) return;
-      fetch(`http://localhost:3000/remove/${id}`, { method: 'DELETE' })
+      fetch(`${API_BASE_URL}/remove/${id}`, { method: 'DELETE' })
         .then(res => res.json())
         .then(() => {
           dbProductIds.delete(Number(id));
@@ -255,7 +260,7 @@
       // If not found in allProducts, fetch it from the server
       if (!product) {
         // Get product data from Shopify API
-        fetch(`http://localhost:3000/debug/${id}`)
+        fetch(`${API_BASE_URL}/debug/${id}`)
           .then(res => res.json())
           .then(fetchedProduct => {
             displayEditForm(clickedCard, fetchedProduct, id);
@@ -297,7 +302,7 @@
 
       console.log('Saving edit with data:', data); // Debug log
 
-      fetch(`http://localhost:3000/edit/${id}`, {
+      fetch(`${API_BASE_URL}/edit/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -345,7 +350,7 @@
           editingCard.replaceWith(replacement);
         } else {
           // If product not in allProducts, fetch it and then restore
-          fetch(`http://localhost:3000/debug/${id}`)
+          fetch(`${API_BASE_URL}/debug/${id}`)
             .then(res => res.json())
             .then(fetchedProduct => {
               const replacement = renderProductCard(fetchedProduct, isInDbTab);
@@ -375,7 +380,7 @@
     }
 
     // ✅ Customers
-    fetch('http://localhost:3000/customers')
+    fetch(`${API_BASE_URL}/customers`)
       .then(res => res.json())
       .then(users => {
         const container = document.getElementById('users');
@@ -391,14 +396,14 @@
       });
 
     // ✅ Orders
-    fetch('http://localhost:3000/orders')
+    fetch(`${API_BASE_URL}/orders`)
       .then(res => res.json())
       .then(orders => {
         const container = document.getElementById('orders');
         orders.forEach(o => {
           const div = document.createElement('div');
           div.className = 'item';
-          div.innerHTML = `<strong>Order ID:</strong> ${o.id}<br>Total: $${o.total_price}`;
+          div.innerHTML = `<strong>Order ID:</strong> ${o.id}<br>Total: ${o.total_price}`;
           container.appendChild(div);
         });
       })
@@ -407,7 +412,7 @@
       });
 
     // ✅ Auth Info
-    fetch('http://localhost:3000/shop')
+    fetch(`${API_BASE_URL}/shop`)
       .then(res => res.json())
       .then(data => {
         const container = document.getElementById('auth');
