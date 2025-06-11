@@ -104,7 +104,9 @@
     // Base API URL - using the new Vercel URL
     const API_BASE_URL = window.location.hostname === 'localhost' 
       ? 'http://localhost:3000' 
-      : 'https://ceymox-internship-zvbm.vercel.app';
+      : window.location.hostname === 'ceymox-internship.vercel.app'
+        ? 'https://ceymox-internship.vercel.app'
+        : 'https://ceymox-internship-hosting.vercel.app';
       
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
