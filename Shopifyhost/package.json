@@ -2,7 +2,6 @@
   "name": "fakestoreshopify",
   "version": "1.0.0",
   "main": "api/server.js",
-  "type": "module",
   "scripts": {
     "start": "node api/server.js"
   },
@@ -15,7 +14,7 @@
     "axios": "^1.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
-    "express": "^5.1.0",
+    "express": "^4.18.2",
     "mysql2": "^3.14.1"
   }
 }
