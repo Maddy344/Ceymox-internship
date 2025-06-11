@@ -21,7 +21,8 @@ console.log('Environment variables loaded:', {
   DB_PORT: process.env.DB_PORT,
   DB_USER: process.env.DB_USER,
   DB_NAME: process.env.DB_NAME,
-  SHOPIFY_SHOP: process.env.SHOPIFY_SHOP
+  SHOPIFY_SHOP: process.env.SHOPIFY_SHOP,
+  SHOPIFY_TOKEN: process.env.SHOPIFY_TOKEN ? 'Present (hidden for security)' : 'MISSING'
 });
 
 const app = express();
@@ -108,9 +109,40 @@ testConnection().then(connected => {
 // ✅ Fetch all products from Shopify
 app.get('/products', async (req, res) => {
   try {
+    console.log('Fetching products from Shopify');
+    console.log('SHOP value:', SHOP);
+    console.log('TOKEN present:', TOKEN ? 'Yes' : 'No');
+    
+    // Hardcoded values as fallback if environment variables are missing
+    const shopDomain = SHOP || 'ceymox-internship.myshopify.com';
+    const accessToken = TOKEN || ''; // You'll need to add this in Vercel env vars
+    
+    console.log('Using shop domain:', shopDomain);
+    
+    const response = await axios.get(`https://${shopDomain}/admin/api/2023-10/products.json`, {
+      headers: { 'X-Shopify-Access-Token': accessToken }
+    });
+    
+    console.log(`Found ${response.data.products.length} products`);
+    res.json(response.data.products);
+  } catch (error) {
+    console.error('Error fetching products:', error.message);
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// Duplicate route with /api prefix for Vercel
+app.get('/api/products', async (req, res) => {
+  try {
+    console.log('Fetching products from Shopify (API route)');
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
+    console.log(`Found ${response.data.products.length} products (API route)`);
     res.json(response.data.products);
   } catch (error) {
     console.error('Error fetching products:', error.message);
@@ -323,8 +355,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Add a prefix to all routes for Vercel deployment
-app.use('/api', app._router);
+// Remove the previous attempt to add API prefix
 
 // Export for serverless environments
 export default app;

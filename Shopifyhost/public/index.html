@@ -101,10 +101,10 @@
   <div id="auth" class="tab-content"></div>
 
   <script>
-    // Base API URL - using specific Vercel deployment URL with API prefix
+    // Base API URL - try direct API URL for Vercel
     const API_BASE_URL = window.location.hostname === 'localhost' 
       ? 'http://localhost:3000' 
-      : 'https://ceymox-internship.vercel.app/api';
+      : 'https://ceymox-internship.vercel.app';
       
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -189,6 +189,25 @@
           console.error('Error refreshing products in DB:', error);
         });
     }
+    
+    // Debug function to check API connectivity
+    function debugAPI() {
+      console.log('Testing API connection to:', `${API_BASE_URL}/products`);
+      fetch(`${API_BASE_URL}/products`)
+        .then(res => {
+          console.log('API Response status:', res.status);
+          return res.json();
+        })
+        .then(data => {
+          console.log('API Response data:', data);
+        })
+        .catch(error => {
+          console.error('API Error:', error);
+        });
+    }
+    
+    // Run debug on page load
+    setTimeout(debugAPI, 1000);
 
     // ✅ Create product card
     function renderProductCard(p, isDbTab = false) {
