@@ -101,10 +101,10 @@
   <div id="auth" class="tab-content"></div>
 
   <script>
-    // Base API URL - change from localhost to Vercel URL when deployed
+    // Base API URL - using specific Vercel deployment URL
     const API_BASE_URL = window.location.hostname === 'localhost' 
       ? 'http://localhost:3000' 
-      : window.location.origin;
+      : 'https://ceymox-internship.vercel.app';
       
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
