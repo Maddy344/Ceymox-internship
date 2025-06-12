@@ -20,14 +20,15 @@ console.log('Environment variables loaded:', {
   SHOPIFY_SHOP: process.env.SHOPIFY_SHOP,
   SHOPIFY_TOKEN: process.env.SHOPIFY_TOKEN ? 'Present (hidden for security)' : 'MISSING',
   SUPABASE_URL: process.env.SUPABASE_URL ? 'Present' : 'MISSING',
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'Present (hidden for security)' : 'MISSING'
+  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'Present (hidden for security)' : 'MISSING',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'Using default'
 });
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT;
 
 app.use(cors({
-  origin: ['https://ceymox-internship.vercel.app', 'http://localhost:3000'],
+  origin: process.env.FRONTEND_URL,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
@@ -235,7 +236,7 @@ app.get('/products-in-db', async (req, res) => {
   }
 });
 
-// ✅ Add product to DB (tag Shopify + insert to MySQL)
+// ✅ Add product to DB (tag Shopify + insert to MySQL + add to Supabase)
 app.post('/add-to-db/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -258,6 +259,7 @@ app.post('/add-to-db/:id', async (req, res) => {
     const productDescription = p.body_html || '';
     const productImage = (p.image && p.image.src) ? p.image.src : '';
 
+    // Add to MySQL
     const connection = await getConnection();
     await connection.query(`
       INSERT INTO products (id, title, price, description, image)
@@ -265,6 +267,26 @@ app.post('/add-to-db/:id', async (req, res) => {
       ON DUPLICATE KEY UPDATE title=?, price=?, description=?, image=?`,
       [p.id, productTitle, productPrice, productDescription, productImage,
        productTitle, productPrice, productDescription, productImage]);
+       
+    // Add to Supabase
+    const productData = {
+      shopify_id: p.id,
+      title: productTitle,
+      price: productPrice,
+      description: productDescription,
+      image: productImage
+    };
+    
+    const { data, error } = await supabase
+      .from('products')
+      .upsert([productData], { onConflict: 'shopify_id' })
+      .select();
+      
+    if (error) {
+      console.error('Error adding product to Supabase:', error.message);
+    } else {
+      console.log('Product added to Supabase:', data);
+    }
 
     res.json({ message: 'Product added to DB and tagged.' });
   } catch (error) {
@@ -273,7 +295,7 @@ app.post('/add-to-db/:id', async (req, res) => {
   }
 });
 
-// ✅ Edit product in MySQL AND Shopify
+// ✅ Edit product in MySQL, Shopify, and Supabase
 app.put('/edit/:id', async (req, res) => {
   try {
     const { title, price, image, description } = req.body;
@@ -317,14 +339,32 @@ app.put('/edit/:id', async (req, res) => {
       }
     });
 
+    // Update MySQL
     const connection = await getConnection();
     await connection.query(
       `UPDATE products SET title=?, price=?, description=?, image=? WHERE id=?`,
       [title, price, description, image, id]
     );
+    
+    // Update Supabase
+    const { error } = await supabase
+      .from('products')
+      .update({
+        title: title,
+        price: price,
+        description: description,
+        image: image
+      })
+      .eq('shopify_id', id);
+      
+    if (error) {
+      console.error('Error updating product in Supabase:', error.message);
+    } else {
+      console.log('Product updated in Supabase');
+    }
 
     res.json({
-      message: 'Product updated successfully in both Shopify and database',
+      message: 'Product updated successfully in Shopify, MySQL, and Supabase',
       updatedProduct: shopifyUpdateResponse.data.product
     });
   } catch (error) {
@@ -356,8 +396,21 @@ app.delete('/remove/:id', async (req, res) => {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
 
+    // Remove from MySQL
     const connection = await getConnection();
     await connection.query(`DELETE FROM products WHERE id=?`, [id]);
+    
+    // Remove from Supabase
+    const { error } = await supabase
+      .from('products')
+      .delete()
+      .eq('shopify_id', id);
+      
+    if (error) {
+      console.error('Error removing product from Supabase:', error.message);
+    } else {
+      console.log('Product removed from Supabase');
+    }
     
     res.json({ message: 'Removed from DB and untagged' });
   } catch (error) {
@@ -476,6 +529,19 @@ app.post('/supabase/add-product', async (req, res) => {
   }
 });
 
+// Middleware to replace placeholders in HTML files with environment variables
+app.use((req, res, next) => {
+  const _send = res.send;
+  res.send = function (body) {
+    // Only process HTML responses
+    if (typeof body === 'string' && body.includes('{{FRONTEND_URL}}')) {
+      body = body.replace(/\{\{FRONTEND_URL\}\}/g, process.env.FRONTEND_URL);
+    }
+    return _send.call(this, body);
+  };
+  next();
+});
+
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -490,9 +556,10 @@ module.exports = app;
 // Start server if this file is run directly
 if (require.main === module) {
   app.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📦 Shop: ${SHOP}`);
     console.log(`🔐 Using environment variables for security`);
+    console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
   });
 }
 // Add Shopify product to Supabase

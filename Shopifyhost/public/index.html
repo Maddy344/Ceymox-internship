@@ -101,10 +101,8 @@
   <div id="auth" class="tab-content"></div>
 
   <script>
-    // Base API URL - using the new Vercel URL
-    const API_BASE_URL = window.location.hostname === 'localhost' 
-      ? 'http://localhost:3000' 
-      : 'https://ceymox-internship.vercel.app';
+    // Base API URL - using environment-based URL from .env file
+    const API_BASE_URL = '{{FRONTEND_URL}}';
       
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
@@ -212,18 +210,18 @@
           console.error('DEBUG: Products API error:', error);
         });
         
-      // Test with direct URL
-      console.log('Testing direct API URL...');
-      fetch('https://ceymox-internship.vercel.app/test-api')
+      // Test API connectivity
+      console.log('Testing API connectivity...');
+      fetch(`${API_BASE_URL}/test-api`)
         .then(res => {
-          console.log('Direct test status:', res.status);
+          console.log('API test status:', res.status);
           return res.json();
         })
         .then(data => {
-          console.log('Direct test data:', data);
+          console.log('API test data:', data);
         })
         .catch(error => {
-          console.error('Direct test error:', error);
+          console.error('API test error:', error);
         });
     }
     
