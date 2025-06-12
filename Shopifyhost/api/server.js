@@ -34,12 +34,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
-const SHOP = process.env.SHOPIFY_SHOP;
+const SHOP = process.env.SHOPIFY_SHOP || 'fakestore-practice1.myshopify.com';
 const TOKEN = process.env.SHOPIFY_TOKEN;
 
-if (!SHOP || !TOKEN) {
-  console.error('❌ Missing required environment variables. Please check your .env file.');
-  console.error('Required: SHOPIFY_SHOP, SHOPIFY_TOKEN');
+if (!TOKEN) {
+  console.error('❌ Missing required environment variable SHOPIFY_TOKEN. Please check your .env file.');
   process.exit(1);
 }
 
@@ -64,8 +63,11 @@ async function getConnection() {
   return pool;
 }
 
-// Import Supabase client from setup file
-const { supabase, setupSupabaseTable } = require('./supabase-setup');
+// Initialize Supabase client with hardcoded fallback values
+const supabase = createClient(
+  process.env.SUPABASE_URL || "https://ojeipoemzriiykfajkdh.supabase.co",
+  process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZWlwb2VtenJpaXlrZmFqa2RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk2MzI1MjQsImV4cCI6MjA2NTIwODUyNH0.jy5vWZ-V1QoabyrYQSsr5gp3HOu0hD7PMJWK1BVA09Y"
+);
 
 // Function to test Supabase connection
 async function testSupabaseConnection() {
@@ -80,21 +82,6 @@ async function testSupabaseConnection() {
     return false;
   }
 }
-
-// Function to test Supabase connection
-async function testSupabaseConnection() {
-  try {
-    // Just check if we can connect to Supabase
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    console.log('✅ Connected to Supabase');
-    return true;
-  } catch (err) {
-    console.error('❌ Supabase connection failed:', err.message);
-    return false;
-  }
-}
-
 
 // Test database connection
 async function testConnection() {
@@ -135,37 +122,44 @@ testConnection().then(connected => {
   }
 });
 
-// Test Supabase connection and initialize database
+// Test Supabase connection and setup table
 testSupabaseConnection().then(connected => {
   if (connected) {
     console.log('Supabase is ready to use');
     
-    // Setup Supabase table using the dedicated setup function
-    setupSupabaseTable().then(success => {
-      if (success) {
-        console.log('✅ Supabase products table setup completed');
-        
-        // Test if we can access the products table
-        supabase
-          .from('products')
-          .select('*')
-          .limit(1)
-          .then(({ data, error }) => {
-            if (error) {
-              console.log('Error accessing products table:', error.message);
-            } else {
-              console.log('✅ Successfully connected to Supabase products table');
-              if (data && data.length > 0) {
-                console.log(`Found ${data.length} products in Supabase`);
+    // Test if we can access the products table
+    supabase
+      .from('products')
+      .select('*')
+      .limit(1)
+      .then(({ data, error }) => {
+        if (error) {
+          console.log('Error accessing products table:', error.message);
+          
+          // Create the table by inserting a test product
+          console.log('Creating products table...');
+          supabase
+            .from('products')
+            .insert([{
+              shopify_id: 0,
+              title: 'Test Product',
+              price: '0.00',
+              description: 'Test Description',
+              image: ''
+            }])
+            .then(({ error: insertError }) => {
+              if (insertError && !insertError.message.includes('already exists')) {
+                console.error('Failed to create products table:', insertError.message);
               } else {
-                console.log('No products found in Supabase table');
+                console.log('Products table created');
+                // Clean up test product
+                supabase.from('products').delete().eq('shopify_id', 0);
               }
-            }
-          });
-      } else {
-        console.error('❌ Failed to setup Supabase products table');
-      }
-    });
+            });
+        } else {
+          console.log('✅ Successfully connected to Supabase products table');
+        }
+      });
   }
 });
 
@@ -176,14 +170,8 @@ app.get('/products', async (req, res) => {
     console.log('SHOP value:', SHOP);
     console.log('TOKEN present:', TOKEN ? 'Yes' : 'No');
     
-    // Hardcoded values as fallback if environment variables are missing
-    const shopDomain = SHOP || 'ceymox-internship.myshopify.com';
-    const accessToken = TOKEN || ''; // You'll need to add this in Vercel env vars
-    
-    console.log('Using shop domain:', shopDomain);
-    
-    const response = await axios.get(`https://${shopDomain}/admin/api/2023-10/products.json`, {
-      headers: { 'X-Shopify-Access-Token': accessToken }
+    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
+      headers: { 'X-Shopify-Access-Token': TOKEN }
     });
     
     console.log(`Found ${response.data.products.length} products`);
@@ -274,23 +262,24 @@ app.post('/add-to-db/:id', async (req, res) => {
       if (tableCheckError && tableCheckError.message.includes('does not exist')) {
         console.log('Products table does not exist, creating it...');
         
-        // Create the table
-        await supabase.rpc('exec_sql', {
-          sql_query: `
-            CREATE TABLE IF NOT EXISTS products (
-              id SERIAL PRIMARY KEY,
-              shopify_id BIGINT UNIQUE,
-              title VARCHAR(255) NOT NULL,
-              price DECIMAL(10,2) NOT NULL,
-              description TEXT,
-              image VARCHAR(1024),
-              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-            );
-          `
-        });
-        
-        console.log('Products table created');
+        // Create the table by inserting a test product
+        const { error: insertError } = await supabase
+          .from('products')
+          .insert([{
+            shopify_id: 0,
+            title: 'Test Product',
+            price: '0.00',
+            description: 'Test Description',
+            image: ''
+          }]);
+          
+        if (insertError && !insertError.message.includes('already exists')) {
+          console.error('Failed to create products table:', insertError.message);
+        } else {
+          console.log('Products table created');
+          // Clean up test product
+          await supabase.from('products').delete().eq('shopify_id', 0);
+        }
       }
       
       // Check if product exists in Supabase
@@ -313,8 +302,7 @@ app.post('/add-to-db/:id', async (req, res) => {
             title: productTitle,
             price: productPrice,
             description: productDescription,
-            image: productImage,
-            updated_at: new Date().toISOString()
+            image: productImage
           })
           .eq('shopify_id', Number(p.id));
           
@@ -638,41 +626,3 @@ if (require.main === module) {
     console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
   });
 }
-// Add Shopify product to Supabase
-app.post('/supabase/add-shopify-product/:id', async (req, res) => {
-  try {
-    const id = req.params.id;
-    
-    // Get product from Shopify
-    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products/${id}.json`, {
-      headers: { 'X-Shopify-Access-Token': TOKEN }
-    });
-    
-    const p = response.data.product;
-    
-    // Format product data for Supabase
-    const productData = {
-      shopify_id: Number(p.id),
-      title: p.title || '',
-      price: (p.variants && p.variants[0]) ? p.variants[0].price : '0.00',
-      description: p.body_html || '',
-      image: (p.image && p.image.src) ? p.image.src : ''
-    };
-    
-    // Insert into Supabase
-    const { data, error } = await supabase
-      .from('products')
-      .insert([productData])
-      .select();
-    
-    if (error) throw error;
-    
-    res.json({ 
-      message: 'Product added to Supabase from Shopify', 
-      product: data[0] 
-    });
-  } catch (error) {
-    console.error('Error adding Shopify product to Supabase:', error.message);
-    res.status(500).json({ error: 'Failed to add Shopify product to Supabase' });
-  }
-});
