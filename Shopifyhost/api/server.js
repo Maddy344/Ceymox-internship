@@ -25,10 +25,10 @@ console.log('Environment variables loaded:', {
 });
 
 const app = express();
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
+  origin: process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app',
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
@@ -535,7 +535,7 @@ app.use((req, res, next) => {
   res.send = function (body) {
     // Only process HTML responses
     if (typeof body === 'string' && body.includes('{{FRONTEND_URL}}')) {
-      body = body.replace(/\{\{FRONTEND_URL\}\}/g, process.env.FRONTEND_URL);
+      body = body.replace(/\{\{FRONTEND_URL\}\}/g, process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app');
     }
     return _send.call(this, body);
   };
