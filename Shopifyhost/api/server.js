@@ -64,40 +64,19 @@ async function getConnection() {
   return pool;
 }
 
-// Initialize Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_ANON_KEY
-);
+// Import Supabase client from setup file
+const { supabase, setupSupabaseTable } = require('./supabase-setup');
 
-// Function to initialize Supabase database
-async function initializeSupabase() {
+// Function to test Supabase connection
+async function testSupabaseConnection() {
   try {
-    // Check if the products table exists by trying to get its schema
-    const { error: schemaError } = await supabase
-      .from('products')
-      .select('*')
-      .limit(0);
-    
-    // If table doesn't exist, we'll get an error
-    if (schemaError && schemaError.message.includes('does not exist')) {
-      console.log('Creating products table in Supabase...');
-      
-      // Create the table using SQL - requires service_role key with enough permissions
-      const { error: createError } = await supabase.rpc('create_products_table');
-      
-      if (createError) {
-        console.error('Failed to create products table:', createError.message);
-        return false;
-      }
-      
-      console.log('✅ Supabase products table created');
-    }
-    
-    console.log('✅ Connected to Supabase database');
+    // Just check if we can connect to Supabase
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    console.log('✅ Connected to Supabase');
     return true;
   } catch (err) {
-    console.error('❌ Supabase initialization failed:', err.message);
+    console.error('❌ Supabase connection failed:', err.message);
     return false;
   }
 }
@@ -156,23 +135,37 @@ testConnection().then(connected => {
   }
 });
 
-// Test Supabase connection
+// Test Supabase connection and initialize database
 testSupabaseConnection().then(connected => {
   if (connected) {
     console.log('Supabase is ready to use');
     
-    // Test if we can access the products table
-    supabase
-      .from('products')
-      .select('*')
-      .limit(1)
-      .then(({ data, error }) => {
-        if (error) {
-          console.log('Error accessing products table:', error.message);
-        } else {
-          console.log('✅ Successfully connected to Supabase products table');
-        }
-      });
+    // Setup Supabase table using the dedicated setup function
+    setupSupabaseTable().then(success => {
+      if (success) {
+        console.log('✅ Supabase products table setup completed');
+        
+        // Test if we can access the products table
+        supabase
+          .from('products')
+          .select('*')
+          .limit(1)
+          .then(({ data, error }) => {
+            if (error) {
+              console.log('Error accessing products table:', error.message);
+            } else {
+              console.log('✅ Successfully connected to Supabase products table');
+              if (data && data.length > 0) {
+                console.log(`Found ${data.length} products in Supabase`);
+              } else {
+                console.log('No products found in Supabase table');
+              }
+            }
+          });
+      } else {
+        console.error('❌ Failed to setup Supabase products table');
+      }
+    });
   }
 });
 
@@ -272,6 +265,34 @@ app.post('/add-to-db/:id', async (req, res) => {
     try {
       console.log('Adding product to Supabase with ID:', p.id);
       
+      // First, ensure the products table exists
+      const { error: tableCheckError } = await supabase
+        .from('products')
+        .select('count')
+        .limit(1);
+        
+      if (tableCheckError && tableCheckError.message.includes('does not exist')) {
+        console.log('Products table does not exist, creating it...');
+        
+        // Create the table
+        await supabase.rpc('exec_sql', {
+          sql_query: `
+            CREATE TABLE IF NOT EXISTS products (
+              id SERIAL PRIMARY KEY,
+              shopify_id BIGINT UNIQUE,
+              title VARCHAR(255) NOT NULL,
+              price DECIMAL(10,2) NOT NULL,
+              description TEXT,
+              image VARCHAR(1024),
+              created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+              updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+          `
+        });
+        
+        console.log('Products table created');
+      }
+      
       // Check if product exists in Supabase
       const { data: existingProduct, error: checkError } = await supabase
         .from('products')
@@ -279,7 +300,7 @@ app.post('/add-to-db/:id', async (req, res) => {
         .eq('shopify_id', Number(p.id))
         .maybeSingle();
       
-      if (checkError) {
+      if (checkError && !checkError.message.includes('does not exist')) {
         console.error('Error checking for existing product:', checkError);
       }
       
@@ -292,7 +313,8 @@ app.post('/add-to-db/:id', async (req, res) => {
             title: productTitle,
             price: productPrice,
             description: productDescription,
-            image: productImage
+            image: productImage,
+            updated_at: new Date().toISOString()
           })
           .eq('shopify_id', Number(p.id));
           
@@ -316,6 +338,24 @@ app.post('/add-to-db/:id', async (req, res) => {
           
         if (insertError) {
           console.error('Error inserting product in Supabase:', insertError);
+          
+          // If insert fails, try upsert as a fallback
+          console.log('Trying upsert as fallback...');
+          const { error: upsertError } = await supabase
+            .from('products')
+            .upsert([{
+              shopify_id: Number(p.id),
+              title: productTitle,
+              price: productPrice,
+              description: productDescription,
+              image: productImage
+            }], { onConflict: 'shopify_id' });
+            
+          if (upsertError) {
+            console.error('Error upserting product in Supabase:', upsertError);
+          } else {
+            console.log('Product upserted in Supabase successfully');
+          }
         } else {
           console.log('Product inserted in Supabase successfully');
         }
