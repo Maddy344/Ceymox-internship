@@ -27,7 +27,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors({
-  origin: ['https://ceymox-internship.vercel.app', 'http://localhost:3000', 'https://ceymox-internship-hosting.vercel.app'],
+  origin: ['https://ceymox-internship.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));

@@ -7,6 +7,15 @@
   "routes": [
     { "src": "/products", "dest": "/api/server.js" },
     { "src": "/products-in-db", "dest": "/api/server.js" },
+    { "src": "/add-to-db/(.*)", "dest": "/api/server.js" },
+    { "src": "/remove/(.*)", "dest": "/api/server.js" },
+    { "src": "/edit/(.*)", "dest": "/api/server.js" },
+    { "src": "/debug/(.*)", "dest": "/api/server.js" },
+    { "src": "/customers", "dest": "/api/server.js" },
+    { "src": "/orders", "dest": "/api/server.js" },
+    { "src": "/shop", "dest": "/api/server.js" },
+    { "src": "/test-api", "dest": "/api/server.js" },
+    { "src": "/health", "dest": "/api/server.js" },
     { "src": "/api/(.*)", "dest": "/api/server.js" },
     { "src": "/(.*)", "dest": "/public/$1" }
   ]
