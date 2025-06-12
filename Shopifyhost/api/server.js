@@ -419,6 +419,18 @@ app.get('/shop', async (req, res) => {
   }
 });
 
+// Test API endpoint for debugging
+app.get('/test-api', (req, res) => {
+  res.json({
+    message: 'API is working',
+    shopifyConfigured: Boolean(SHOP && TOKEN),
+    env: {
+      shopPresent: Boolean(SHOP),
+      tokenPresent: Boolean(TOKEN)
+    }
+  });
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
