@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>API Debug</title>
+</head>
+<body>
+  <h1>API Debug Tool</h1>
+  <button onclick="testAPI()">Test API Connection</button>
+  <button onclick="fetchProducts()">Fetch Products</button>
+  <div id="results" style="margin-top: 20px; padding: 10px; border: 1px solid #ccc;"></div>
+
+  <script>
+    const API_URL = window.location.origin;
+    const resultsDiv = document.getElementById('results');
+
+    function testAPI() {
+      resultsDiv.innerHTML = 'Testing API connection...';
+      
+      fetch(`${API_URL}/test-api`)
+        .then(response => response.json())
+        .then(data => {
+          resultsDiv.innerHTML = `
+            <h3>API Test Results:</h3>
+            <pre>${JSON.stringify(data, null, 2)}</pre>
+          `;
+        })
+        .catch(error => {
+          resultsDiv.innerHTML = `
+            <h3>API Test Error:</h3>
+            <pre>${error.message}</pre>
+          `;
+        });
+    }
+
+    function fetchProducts() {
+      resultsDiv.innerHTML = 'Fetching products...';
+      
+      fetch(`${API_URL}/products`)
+        .then(response => {
+          resultsDiv.innerHTML += `<p>Response status: ${response.status}</p>`;
+          return response.json();
+        })
+        .then(data => {
+          if (Array.isArray(data)) {
+            resultsDiv.innerHTML += `<p>Found ${data.length} products</p>`;
+            resultsDiv.innerHTML += `<pre>${JSON.stringify(data.slice(0, 2), null, 2)}</pre>`;
+          } else {
+            resultsDiv.innerHTML += `<p>Response is not an array</p>`;
+            resultsDiv.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+          }
+        })
+        .catch(error => {
+          resultsDiv.innerHTML += `
+            <h3>Products Fetch Error:</h3>
+            <pre>${error.message}</pre>
+          `;
+        });
+    }
+  </script>
+</body>
+</html>

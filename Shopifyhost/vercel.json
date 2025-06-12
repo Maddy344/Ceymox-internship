@@ -22,7 +22,9 @@
   ],
   "env": {
     "SHOPIFY_SHOP": "fakestore-practice1.myshopify.com",
+    "SHOPIFY_TOKEN": "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",
     "SUPABASE_URL": "https://ojeipoemzriiykfajkdh.supabase.co",
+    "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZWlwb2VtenJpaXlrZmFqa2RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk2MzI1MjQsImV4cCI6MjA2NTIwODUyNH0.jy5vWZ-V1QoabyrYQSsr5gp3HOu0hD7PMJWK1BVA09Y",
     "FRONTEND_URL": "https://ceymox-internship.vercel.app"
   }
 }

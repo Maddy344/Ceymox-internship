@@ -10,43 +10,26 @@ const { createClient } = require('@supabase/supabase-js');
 // Load .env file from project root
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-// Log environment variables for debugging
-console.log('Environment variables loaded:', {
-  DB_HOST: process.env.DB_HOST,
-  MYSQL_PORT: process.env.MYSQL_PORT,
-  DB_PORT: process.env.DB_PORT,
-  DB_USER: process.env.DB_USER,
-  DB_NAME: process.env.DB_NAME,
-  SHOPIFY_SHOP: process.env.SHOPIFY_SHOP,
-  SHOPIFY_TOKEN: process.env.SHOPIFY_TOKEN ? 'Present (hidden for security)' : 'MISSING',
-  SUPABASE_URL: process.env.SUPABASE_URL ? 'Present' : 'MISSING',
-  SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY ? 'Present (hidden for security)' : 'MISSING',
-  FRONTEND_URL: process.env.FRONTEND_URL || 'Using default'
-});
-
 const app = express();
 const PORT = process.env.PORT || 3000;
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app';
 
+// Enable CORS for Vercel frontend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app',
+  origin: FRONTEND_URL,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   credentials: true
 }));
 app.use(express.json());
 
+// Shopify credentials
 const SHOP = process.env.SHOPIFY_SHOP || 'fakestore-practice1.myshopify.com';
-const TOKEN = process.env.SHOPIFY_TOKEN;
+const TOKEN = process.env.SHOPIFY_TOKEN || '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';
 
-if (!TOKEN) {
-  console.error('❌ Missing required environment variable SHOPIFY_TOKEN. Please check your .env file.');
-  process.exit(1);
-}
-
-// MySQL connection pool for better performance with serverless
+// MySQL connection pool
 let pool;
 async function getConnection() {
   if (!pool) {
-    // Hardcode the connection details directly
     pool = mysql.createPool({
       host: process.env.DB_HOST,
       port: process.env.DB_PORT,
@@ -57,48 +40,20 @@ async function getConnection() {
       connectionLimit: 10,
       queueLimit: 0
     });
-    
-    console.log('Created connection pool to Railway MySQL');
   }
   return pool;
 }
 
-// Initialize Supabase client with hardcoded fallback values
+// Initialize Supabase client
 const supabase = createClient(
-  process.env.SUPABASE_URL || "https://ojeipoemzriiykfajkdh.supabase.co",
-  process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9qZWlwb2VtenJpaXlrZmFqa2RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk2MzI1MjQsImV4cCI6MjA2NTIwODUyNH0.jy5vWZ-V1QoabyrYQSsr5gp3HOu0hD7PMJWK1BVA09Y"
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
 );
 
-// Function to test Supabase connection
-async function testSupabaseConnection() {
+// Initialize database on startup
+async function initDatabases() {
   try {
-    // Just check if we can connect to Supabase
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    console.log('✅ Connected to Supabase');
-    return true;
-  } catch (err) {
-    console.error('❌ Supabase connection failed:', err.message);
-    return false;
-  }
-}
-
-// Test database connection
-async function testConnection() {
-  try {
-    const connection = await getConnection();
-    const [rows] = await connection.query('SELECT 1');
-    console.log('✅ Connected to MySQL database');
-    return true;
-  } catch (err) {
-    console.error('❌ Database connection failed:', err.message);
-    return false;
-  }
-}
-
-// Initialize database tables if they don't exist
-async function initializeDatabase() {
-  try {
+    // Setup MySQL
     const connection = await getConnection();
     await connection.query(`
       CREATE TABLE IF NOT EXISTS products (
@@ -109,91 +64,51 @@ async function initializeDatabase() {
         image VARCHAR(1024)
       )
     `);
-    console.log('✅ Database tables initialized');
+    
+    // Setup Supabase
+    const { error: checkError } = await supabase
+      .from('products')
+      .select('count')
+      .limit(1);
+      
+    if (checkError && checkError.message.includes('does not exist')) {
+      console.log('Creating Supabase products table...');
+      
+      const { error: insertError } = await supabase
+        .from('products')
+        .insert([{
+          shopify_id: 0,
+          title: 'Test Product',
+          price: '0.00',
+          description: 'Test Description',
+          image: ''
+        }]);
+        
+      if (!insertError || insertError.message.includes('already exists')) {
+        console.log('Products table created');
+        await supabase.from('products').delete().eq('shopify_id', 0);
+      }
+    }
+    
+    console.log('Databases initialized');
   } catch (err) {
-    console.error('❌ Failed to initialize database tables:', err.message);
+    console.error('Database initialization failed:', err.message);
   }
 }
 
-// Initialize the database on startup
-testConnection().then(connected => {
-  if (connected) {
-    initializeDatabase();
-  }
-});
-
-// Test Supabase connection and setup table
-testSupabaseConnection().then(connected => {
-  if (connected) {
-    console.log('Supabase is ready to use');
-    
-    // Test if we can access the products table
-    supabase
-      .from('products')
-      .select('*')
-      .limit(1)
-      .then(({ data, error }) => {
-        if (error) {
-          console.log('Error accessing products table:', error.message);
-          
-          // Create the table by inserting a test product
-          console.log('Creating products table...');
-          supabase
-            .from('products')
-            .insert([{
-              shopify_id: 0,
-              title: 'Test Product',
-              price: '0.00',
-              description: 'Test Description',
-              image: ''
-            }])
-            .then(({ error: insertError }) => {
-              if (insertError && !insertError.message.includes('already exists')) {
-                console.error('Failed to create products table:', insertError.message);
-              } else {
-                console.log('Products table created');
-                // Clean up test product
-                supabase.from('products').delete().eq('shopify_id', 0);
-              }
-            });
-        } else {
-          console.log('✅ Successfully connected to Supabase products table');
-        }
-      });
-  }
-});
+// Run initialization
+initDatabases();
 
 // ✅ Fetch all products from Shopify
 app.get('/products', async (req, res) => {
   try {
     console.log('Fetching products from Shopify');
-    console.log('SHOP value:', SHOP);
-    console.log('TOKEN present:', TOKEN ? 'Yes' : 'No');
     
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
     
     console.log(`Found ${response.data.products.length} products`);
-    res.json(response.data.products);
-  } catch (error) {
-    console.error('Error fetching products:', error.message);
-    if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
-    }
-    res.status(500).json({ error: 'Failed to fetch products' });
-  }
-});
-
-// Duplicate route with /api prefix for Vercel
-app.get('/api/products', async (req, res) => {
-  try {
-    console.log('Fetching products from Shopify (API route)');
-    const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
-      headers: { 'X-Shopify-Access-Token': TOKEN }
-    });
-    console.log(`Found ${response.data.products.length} products (API route)`);
     res.json(response.data.products);
   } catch (error) {
     console.error('Error fetching products:', error.message);
@@ -217,7 +132,7 @@ app.get('/products-in-db', async (req, res) => {
   }
 });
 
-// ✅ Add product to DB (tag Shopify + insert to MySQL + add to Supabase)
+// ✅ Add product to DB
 app.post('/add-to-db/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -251,52 +166,16 @@ app.post('/add-to-db/:id', async (req, res) => {
        
     // Add to Supabase
     try {
-      console.log('Adding product to Supabase with ID:', p.id);
-      
-      // First, ensure the products table exists
-      const { error: tableCheckError } = await supabase
-        .from('products')
-        .select('count')
-        .limit(1);
-        
-      if (tableCheckError && tableCheckError.message.includes('does not exist')) {
-        console.log('Products table does not exist, creating it...');
-        
-        // Create the table by inserting a test product
-        const { error: insertError } = await supabase
-          .from('products')
-          .insert([{
-            shopify_id: 0,
-            title: 'Test Product',
-            price: '0.00',
-            description: 'Test Description',
-            image: ''
-          }]);
-          
-        if (insertError && !insertError.message.includes('already exists')) {
-          console.error('Failed to create products table:', insertError.message);
-        } else {
-          console.log('Products table created');
-          // Clean up test product
-          await supabase.from('products').delete().eq('shopify_id', 0);
-        }
-      }
-      
       // Check if product exists in Supabase
-      const { data: existingProduct, error: checkError } = await supabase
+      const { data: existingProduct } = await supabase
         .from('products')
         .select('id')
         .eq('shopify_id', Number(p.id))
         .maybeSingle();
       
-      if (checkError && !checkError.message.includes('does not exist')) {
-        console.error('Error checking for existing product:', checkError);
-      }
-      
       if (existingProduct) {
         // Update existing product
-        console.log('Updating existing product in Supabase');
-        const { error: updateError } = await supabase
+        await supabase
           .from('products')
           .update({
             title: productTitle,
@@ -305,48 +184,17 @@ app.post('/add-to-db/:id', async (req, res) => {
             image: productImage
           })
           .eq('shopify_id', Number(p.id));
-          
-        if (updateError) {
-          console.error('Error updating product in Supabase:', updateError);
-        } else {
-          console.log('Product updated in Supabase successfully');
-        }
       } else {
         // Insert new product
-        console.log('Inserting new product in Supabase');
-        const { error: insertError } = await supabase
+        await supabase
           .from('products')
-          .insert([{
+          .upsert([{
             shopify_id: Number(p.id),
             title: productTitle,
             price: productPrice,
             description: productDescription,
             image: productImage
-          }]);
-          
-        if (insertError) {
-          console.error('Error inserting product in Supabase:', insertError);
-          
-          // If insert fails, try upsert as a fallback
-          console.log('Trying upsert as fallback...');
-          const { error: upsertError } = await supabase
-            .from('products')
-            .upsert([{
-              shopify_id: Number(p.id),
-              title: productTitle,
-              price: productPrice,
-              description: productDescription,
-              image: productImage
-            }], { onConflict: 'shopify_id' });
-            
-          if (upsertError) {
-            console.error('Error upserting product in Supabase:', upsertError);
-          } else {
-            console.log('Product upserted in Supabase successfully');
-          }
-        } else {
-          console.log('Product inserted in Supabase successfully');
-        }
+          }], { onConflict: 'shopify_id' });
       }
     } catch (supabaseError) {
       console.error('Supabase operation failed:', supabaseError);
@@ -359,7 +207,7 @@ app.post('/add-to-db/:id', async (req, res) => {
   }
 });
 
-// ✅ Edit product in MySQL, Shopify, and Supabase
+// ✅ Edit product
 app.put('/edit/:id', async (req, res) => {
   try {
     const { title, price, image, description } = req.body;
@@ -411,7 +259,7 @@ app.put('/edit/:id', async (req, res) => {
     );
     
     // Update Supabase
-    const { error } = await supabase
+    await supabase
       .from('products')
       .update({
         title: title,
@@ -420,27 +268,18 @@ app.put('/edit/:id', async (req, res) => {
         image: image
       })
       .eq('shopify_id', Number(id));
-      
-    if (error) {
-      console.error('Error updating product in Supabase:', error.message);
-    } else {
-      console.log('Product updated in Supabase');
-    }
 
     res.json({
-      message: 'Product updated successfully in Shopify, MySQL, and Supabase',
+      message: 'Product updated successfully',
       updatedProduct: shopifyUpdateResponse.data.product
     });
   } catch (error) {
     console.error('Error updating product:', error.message);
-    if (error.response) {
-      console.error('Shopify API error:', error.response.data);
-    }
     res.status(500).json({ error: 'Failed to update product' });
   }
 });
 
-// ✅ Remove product from DB and untag in Shopify
+// ✅ Remove product from DB
 app.delete('/remove/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -465,16 +304,10 @@ app.delete('/remove/:id', async (req, res) => {
     await connection.query(`DELETE FROM products WHERE id=?`, [id]);
     
     // Remove from Supabase
-    const { error } = await supabase
+    await supabase
       .from('products')
       .delete()
       .eq('shopify_id', Number(id));
-      
-    if (error) {
-      console.error('Error removing product from Supabase:', error.message);
-    } else {
-      console.log('Product removed from Supabase');
-    }
     
     res.json({ message: 'Removed from DB and untagged' });
   } catch (error) {
@@ -483,7 +316,7 @@ app.delete('/remove/:id', async (req, res) => {
   }
 });
 
-// ✅ Debug endpoint to see product structure
+// ✅ Debug endpoint
 app.get('/debug/:id', async (req, res) => {
   try {
     const id = req.params.id;
@@ -536,15 +369,12 @@ app.get('/shop', async (req, res) => {
   }
 });
 
-// Test API endpoint for debugging
+// Test API endpoint
 app.get('/test-api', (req, res) => {
   res.json({
     message: 'API is working',
-    shopifyConfigured: Boolean(SHOP && TOKEN),
-    env: {
-      shopPresent: Boolean(SHOP),
-      tokenPresent: Boolean(TOKEN)
-    }
+    shopifyConfigured: true,
+    frontendUrl: FRONTEND_URL
   });
 });
 
@@ -553,53 +383,13 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// Supabase routes
-
-// Get all products from Supabase
-app.get('/supabase/products', async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*');
-    
-    if (error) throw error;
-    
-    console.log(`Found ${data.length} products in Supabase`);
-    res.json(data);
-  } catch (error) {
-    console.error('Error fetching products from Supabase:', error.message);
-    res.status(500).json({ error: 'Failed to fetch products from Supabase' });
-  }
-});
-
-// Add product to Supabase
-app.post('/supabase/add-product', async (req, res) => {
-  try {
-    const { title, price, description, image } = req.body;
-    
-    const { data, error } = await supabase
-      .from('products')
-      .insert([
-        { title, price, description, image }
-      ])
-      .select();
-    
-    if (error) throw error;
-    
-    res.json({ message: 'Product added to Supabase', product: data[0] });
-  } catch (error) {
-    console.error('Error adding product to Supabase:', error.message);
-    res.status(500).json({ error: 'Failed to add product to Supabase' });
-  }
-});
-
 // Middleware to replace placeholders in HTML files with environment variables
 app.use((req, res, next) => {
   const _send = res.send;
   res.send = function (body) {
     // Only process HTML responses
     if (typeof body === 'string' && body.includes('{{FRONTEND_URL}}')) {
-      body = body.replace(/\{\{FRONTEND_URL\}\}/g, process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app');
+      body = body.replace(/\{\{FRONTEND_URL\}\}/g, FRONTEND_URL);
     }
     return _send.call(this, body);
   };
@@ -609,7 +399,7 @@ app.use((req, res, next) => {
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Catch-all route to serve index.html for client-side routing
+// Catch-all route to serve index.html
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
@@ -622,7 +412,6 @@ if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📦 Shop: ${SHOP}`);
-    console.log(`🔐 Using environment variables for security`);
-    console.log(`🌐 Frontend URL: ${process.env.FRONTEND_URL}`);
+    console.log(`🌐 Frontend URL: ${FRONTEND_URL}`);
   });
 }
