@@ -268,26 +268,25 @@ app.post('/add-to-db/:id', async (req, res) => {
       [p.id, productTitle, productPrice, productDescription, productImage,
        productTitle, productPrice, productDescription, productImage]);
        
-    // Add to Supabase - Direct insert approach
+    // Add to Supabase
     try {
       console.log('Adding product to Supabase with ID:', p.id);
       
-      // First try a direct insert
-      const { data, error } = await supabase
+      // Check if product exists in Supabase
+      const { data: existingProduct, error: checkError } = await supabase
         .from('products')
-        .insert([{
-          shopify_id: Number(p.id),
-          title: productTitle,
-          price: productPrice,
-          description: productDescription,
-          image: productImage
-        }]);
+        .select('id')
+        .eq('shopify_id', Number(p.id))
+        .maybeSingle();
       
-      if (error) {
-        console.log('Insert failed, trying update:', error.message);
-        
-        // If insert fails, try update
-        const { data: updateData, error: updateError } = await supabase
+      if (checkError) {
+        console.error('Error checking for existing product:', checkError);
+      }
+      
+      if (existingProduct) {
+        // Update existing product
+        console.log('Updating existing product in Supabase');
+        const { error: updateError } = await supabase
           .from('products')
           .update({
             title: productTitle,
@@ -298,15 +297,31 @@ app.post('/add-to-db/:id', async (req, res) => {
           .eq('shopify_id', Number(p.id));
           
         if (updateError) {
-          console.error('Update also failed:', updateError.message);
+          console.error('Error updating product in Supabase:', updateError);
         } else {
-          console.log('Product updated in Supabase');
+          console.log('Product updated in Supabase successfully');
         }
       } else {
-        console.log('Product added to Supabase');
+        // Insert new product
+        console.log('Inserting new product in Supabase');
+        const { error: insertError } = await supabase
+          .from('products')
+          .insert([{
+            shopify_id: Number(p.id),
+            title: productTitle,
+            price: productPrice,
+            description: productDescription,
+            image: productImage
+          }]);
+          
+        if (insertError) {
+          console.error('Error inserting product in Supabase:', insertError);
+        } else {
+          console.log('Product inserted in Supabase successfully');
+        }
       }
     } catch (supabaseError) {
-      console.error('Supabase operation failed:', supabaseError.message);
+      console.error('Supabase operation failed:', supabaseError);
     }
 
     res.json({ message: 'Product added to DB and tagged.' });
