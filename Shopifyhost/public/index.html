@@ -194,22 +194,29 @@
     
     // Debug function to check API connectivity
     function debugAPI() {
-      console.log('Testing API connection to:', `${API_BASE_URL}/products`);
+      console.log('DEBUG: Testing API connection');
+      console.log('DEBUG: API_BASE_URL =', API_BASE_URL);
+      
+      // Direct test of products endpoint
       fetch(`${API_BASE_URL}/products`)
         .then(res => {
-          console.log('API Response status:', res.status);
+          console.log('DEBUG: Products API status:', res.status);
+          if (!res.ok) {
+            throw new Error(`API returned ${res.status}`);
+          }
           return res.json();
         })
         .then(data => {
-          console.log('API Response data:', data);
+          console.log('DEBUG: Products data:', data);
+          console.log('DEBUG: Products count:', Array.isArray(data) ? data.length : 'not an array');
         })
         .catch(error => {
-          console.error('API Error:', error);
+          console.error('DEBUG: Products API error:', error);
         });
     }
     
-    // Run debug on page load
-    setTimeout(debugAPI, 1000);
+    // Run debug immediately
+    debugAPI();
 
     // ✅ Create product card
     function renderProductCard(p, isDbTab = false) {
