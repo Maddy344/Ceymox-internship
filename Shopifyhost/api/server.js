@@ -268,24 +268,45 @@ app.post('/add-to-db/:id', async (req, res) => {
       [p.id, productTitle, productPrice, productDescription, productImage,
        productTitle, productPrice, productDescription, productImage]);
        
-    // Add to Supabase
-    const productData = {
-      shopify_id: p.id,
-      title: productTitle,
-      price: productPrice,
-      description: productDescription,
-      image: productImage
-    };
-    
-    const { data, error } = await supabase
-      .from('products')
-      .upsert([productData], { onConflict: 'shopify_id' })
-      .select();
+    // Add to Supabase - Direct insert approach
+    try {
+      console.log('Adding product to Supabase with ID:', p.id);
       
-    if (error) {
-      console.error('Error adding product to Supabase:', error.message);
-    } else {
-      console.log('Product added to Supabase:', data);
+      // First try a direct insert
+      const { data, error } = await supabase
+        .from('products')
+        .insert([{
+          shopify_id: Number(p.id),
+          title: productTitle,
+          price: productPrice,
+          description: productDescription,
+          image: productImage
+        }]);
+      
+      if (error) {
+        console.log('Insert failed, trying update:', error.message);
+        
+        // If insert fails, try update
+        const { data: updateData, error: updateError } = await supabase
+          .from('products')
+          .update({
+            title: productTitle,
+            price: productPrice,
+            description: productDescription,
+            image: productImage
+          })
+          .eq('shopify_id', Number(p.id));
+          
+        if (updateError) {
+          console.error('Update also failed:', updateError.message);
+        } else {
+          console.log('Product updated in Supabase');
+        }
+      } else {
+        console.log('Product added to Supabase');
+      }
+    } catch (supabaseError) {
+      console.error('Supabase operation failed:', supabaseError.message);
     }
 
     res.json({ message: 'Product added to DB and tagged.' });
@@ -355,7 +376,7 @@ app.put('/edit/:id', async (req, res) => {
         description: description,
         image: image
       })
-      .eq('shopify_id', id);
+      .eq('shopify_id', Number(id));
       
     if (error) {
       console.error('Error updating product in Supabase:', error.message);
@@ -404,7 +425,7 @@ app.delete('/remove/:id', async (req, res) => {
     const { error } = await supabase
       .from('products')
       .delete()
-      .eq('shopify_id', id);
+      .eq('shopify_id', Number(id));
       
     if (error) {
       console.error('Error removing product from Supabase:', error.message);
@@ -576,7 +597,7 @@ app.post('/supabase/add-shopify-product/:id', async (req, res) => {
     
     // Format product data for Supabase
     const productData = {
-      shopify_id: p.id,
+      shopify_id: Number(p.id),
       title: p.title || '',
       price: (p.variants && p.variants[0]) ? p.variants[0].price : '0.00',
       description: p.body_html || '',
