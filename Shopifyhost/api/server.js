@@ -8,11 +8,11 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 
 // Load .env file from project root
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://ceymox-internship.vercel.app';
+const PORT = process.env.PORT;
+const FRONTEND_URL = process.env.FRONTEND_URL;
 
 // Enable CORS for Vercel frontend
 app.use(cors({
@@ -23,8 +23,8 @@ app.use(cors({
 app.use(express.json());
 
 // Shopify credentials
-const SHOP = process.env.SHOPIFY_SHOP || 'fakestore-practice1.myshopify.com';
-const TOKEN = process.env.SHOPIFY_TOKEN || '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';
+const SHOP = process.env.SHOPIFY_SHOP;
+const TOKEN = process.env.SHOPIFY_TOKEN;
 
 // MySQL connection pool
 let pool;
