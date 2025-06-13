@@ -81,11 +81,22 @@
     input, textarea {
       width: 100%; margin: 6px 0;
     }
+    
+    #error-message {
+      color: #dc3545;
+      background-color: #f8d7da;
+      border: 1px solid #f5c6cb;
+      padding: 10px;
+      margin-bottom: 20px;
+      border-radius: 5px;
+      display: none;
+    }
   </style>
 </head>
 <body>
 
   <h1>📦 Shopify Admin Panel</h1>
+  <div id="error-message"></div>
   <div class="tabs">
     <button onclick="showTab('products')" class="active">🛒 Products</button>
     <button onclick="showTab('productsindb')">🗃️ Products in DB</button>
@@ -102,13 +113,23 @@
 
   <script>
     // Base API URL - using environment-based URL from .env file
-    const API_BASE_URL = '{{FRONTEND_URL}}/api';
+    const API_BASE_URL = '';
       
     function showTab(tabId) {
       document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
       document.querySelectorAll('.tabs button').forEach(btn => btn.classList.remove('active'));
       document.getElementById(tabId).classList.add('active');
       document.querySelector(`.tabs button[onclick="showTab('${tabId}')"]`).classList.add('active');
+    }
+
+    function showError(message) {
+      const errorEl = document.getElementById('error-message');
+      errorEl.textContent = message;
+      errorEl.style.display = 'block';
+    }
+
+    function hideError() {
+      document.getElementById('error-message').style.display = 'none';
     }
 
     const dbProductIds = new Set();
@@ -139,33 +160,51 @@
     }
 
     // ✅ Get products already in DB
-    fetch(`${API_BASE_URL}/products-in-db`)
-      .then(res => res.json())
+    fetch(`/products-in-db`)
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch products in DB: ${res.status}`);
+        return res.json();
+      })
       .then(inDbProducts => {
+        hideError();
         inDbProducts.forEach(p => dbProductIds.add(p.id));
         loadProducts();
         renderProductsInDb(inDbProducts);
       })
       .catch(error => {
         console.error('Error fetching products in DB:', error);
+        showError(`Error loading products in DB: ${error.message}`);
       });
 
     // ✅ Load products from Shopify
     function loadProducts() {
-      fetch(`${API_BASE_URL}/products`)
-        .then(res => res.json())
+      const container = document.getElementById('products');
+      container.innerHTML = '<p>Loading products...</p>';
+      
+      fetch(`/products`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`);
+          return res.json();
+        })
         .then(products => {
+          hideError();
           allProducts = products;
-          console.log('Products loaded:', products); // Debug log
-          const container = document.getElementById('products');
+          console.log('Products loaded:', products.length); 
           container.innerHTML = '';
+          
+          if (products.length === 0) {
+            container.innerHTML = '<p>No products found</p>';
+            return;
+          }
+          
           products.forEach(p => {
-            console.log('Product category:', p.product_type, p.category); // Debug log
             container.appendChild(renderProductCard(p));
           });
         })
         .catch(error => {
           console.error('Error loading products:', error);
+          container.innerHTML = `<p>Error loading products: ${error.message}</p>`;
+          showError(`Error loading products: ${error.message}`);
         });
     }
 
@@ -173,28 +212,59 @@
     function renderProductsInDb(dbProducts) {
       const container = document.getElementById('productsindb');
       container.innerHTML = '';
+      
+      if (dbProducts.length === 0) {
+        container.innerHTML = '<p>No products in database</p>';
+        return;
+      }
+      
       dbProducts.forEach(p => container.appendChild(renderProductCard(p, true)));
     }
 
     // ✅ Refresh Products in DB tab
     function refreshProductsInDb() {
-      fetch(`${API_BASE_URL}/products-in-db`)
-        .then(res => res.json())
+      const container = document.getElementById('productsindb');
+      container.innerHTML = '<p>Loading products...</p>';
+      
+      fetch(`/products-in-db`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to refresh products in DB: ${res.status}`);
+          return res.json();
+        })
         .then(inDbProducts => {
+          hideError();
           renderProductsInDb(inDbProducts);
         })
         .catch(error => {
           console.error('Error refreshing products in DB:', error);
+          container.innerHTML = `<p>Error refreshing products: ${error.message}</p>`;
+          showError(`Error refreshing products: ${error.message}`);
         });
     }
     
     // Debug function to check API connectivity
     function debugAPI() {
       console.log('DEBUG: Testing API connection');
-      console.log('DEBUG: API_BASE_URL =', API_BASE_URL);
       
+      // Test API connectivity
+      fetch(`/test-api`)
+        .then(res => {
+          console.log('API test status:', res.status);
+          return res.json();
+        })
+        .then(data => {
+          console.log('API test data:', data);
+          if (!data.shopifyConfigured) {
+            showError('Shopify API is not properly configured. Check your environment variables.');
+          }
+        })
+        .catch(error => {
+          console.error('API test error:', error);
+          showError(`API connection error: ${error.message}`);
+        });
+        
       // Direct test of products endpoint
-      fetch(`${API_BASE_URL}/products`)
+      fetch(`/products`)
         .then(res => {
           console.log('DEBUG: Products API status:', res.status);
           if (!res.ok) {
@@ -203,25 +273,10 @@
           return res.json();
         })
         .then(data => {
-          console.log('DEBUG: Products data:', data);
           console.log('DEBUG: Products count:', Array.isArray(data) ? data.length : 'not an array');
         })
         .catch(error => {
           console.error('DEBUG: Products API error:', error);
-        });
-        
-      // Test API connectivity
-      console.log('Testing API connectivity...');
-      fetch(`${API_BASE_URL}/test-api`)
-        .then(res => {
-          console.log('API test status:', res.status);
-          return res.json();
-        })
-        .then(data => {
-          console.log('API test data:', data);
-        })
-        .catch(error => {
-          console.error('API test error:', error);
         });
     }
     
@@ -259,9 +314,13 @@
 
     function addToDB(e, id) {
       e.preventDefault();
-      fetch(`${API_BASE_URL}/add-to-db/${id}`, { method: 'POST' })
-        .then(res => res.json())
+      fetch(`/add-to-db/${id}`, { method: 'POST' })
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to add product to DB: ${res.status}`);
+          return res.json();
+        })
         .then(() => {
+          hideError();
           dbProductIds.add(Number(id));
           updateAllCards(id);
           // Refresh the Products in DB tab immediately
@@ -269,15 +328,20 @@
         })
         .catch(error => {
           console.error('Error adding to DB:', error);
+          showError(`Error adding product to DB: ${error.message}`);
         });
     }
 
     function removeFromDB(e, id) {
       e.preventDefault();
       if (!confirm("Are you sure you want to remove this from DB?")) return;
-      fetch(`${API_BASE_URL}/remove/${id}`, { method: 'DELETE' })
-        .then(res => res.json())
+      fetch(`/remove/${id}`, { method: 'DELETE' })
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to remove product from DB: ${res.status}`);
+          return res.json();
+        })
         .then(() => {
+          hideError();
           dbProductIds.delete(Number(id));
           updateAllCards(id);
           // Refresh the Products in DB tab immediately
@@ -285,6 +349,7 @@
         })
         .catch(error => {
           console.error('Error removing from DB:', error);
+          showError(`Error removing product from DB: ${error.message}`);
         });
     }
 
@@ -298,13 +363,18 @@
       // If not found in allProducts, fetch it from the server
       if (!product) {
         // Get product data from Shopify API
-        fetch(`${API_BASE_URL}/debug/${id}`)
-          .then(res => res.json())
+        fetch(`/debug/${id}`)
+          .then(res => {
+            if (!res.ok) throw new Error(`Failed to fetch product for edit: ${res.status}`);
+            return res.json();
+          })
           .then(fetchedProduct => {
+            hideError();
             displayEditForm(clickedCard, fetchedProduct, id);
           })
           .catch(error => {
             console.error('Error fetching product for edit:', error);
+            showError(`Error fetching product for edit: ${error.message}`);
           });
         return;
       }
@@ -338,16 +408,17 @@
         description: document.getElementById('edesc' + id).value
       };
 
-      console.log('Saving edit with data:', data); // Debug log
-
-      fetch(`${API_BASE_URL}/edit/${id}`, {
+      fetch(`/edit/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to save product edit: ${res.status}`);
+          return res.json();
+        })
         .then((result) => {
-          console.log('Edit result:', result); // Debug log
+          hideError();
           // Update the product in allProducts array
           const product = allProducts.find(p => p.id == id);
           if (product) {
@@ -369,7 +440,7 @@
         })
         .catch(error => {
           console.error('Error saving edit:', error);
-          alert('Error saving changes. Please try again.');
+          showError(`Error saving product edit: ${error.message}`);
         });
     }
 
@@ -388,14 +459,19 @@
           editingCard.replaceWith(replacement);
         } else {
           // If product not in allProducts, fetch it and then restore
-          fetch(`${API_BASE_URL}/debug/${id}`)
-            .then(res => res.json())
+          fetch(`/debug/${id}`)
+            .then(res => {
+              if (!res.ok) throw new Error(`Failed to fetch product for cancel: ${res.status}`);
+              return res.json();
+            })
             .then(fetchedProduct => {
+              hideError();
               const replacement = renderProductCard(fetchedProduct, isInDbTab);
               editingCard.replaceWith(replacement);
             })
             .catch(error => {
               console.error('Error fetching product for cancel:', error);
+              showError(`Error fetching product: ${error.message}`);
               // Fallback: just refresh the entire tab
               if (isInDbTab) {
                 refreshProductsInDb();
@@ -418,10 +494,21 @@
     }
 
     // ✅ Customers
-    fetch(`${API_BASE_URL}/customers`)
-      .then(res => res.json())
+    fetch(`/customers`)
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch customers: ${res.status}`);
+        return res.json();
+      })
       .then(users => {
+        hideError();
         const container = document.getElementById('users');
+        container.innerHTML = '';
+        
+        if (users.length === 0) {
+          container.innerHTML = '<p>No customers found</p>';
+          return;
+        }
+        
         users.forEach(u => {
           const div = document.createElement('div');
           div.className = 'item';
@@ -431,13 +518,25 @@
       })
       .catch(error => {
         console.error('Error fetching customers:', error);
+        document.getElementById('users').innerHTML = `<p>Error loading customers: ${error.message}</p>`;
       });
 
     // ✅ Orders
-    fetch(`${API_BASE_URL}/orders`)
-      .then(res => res.json())
+    fetch(`/orders`)
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch orders: ${res.status}`);
+        return res.json();
+      })
       .then(orders => {
+        hideError();
         const container = document.getElementById('orders');
+        container.innerHTML = '';
+        
+        if (orders.length === 0) {
+          container.innerHTML = '<p>No orders found</p>';
+          return;
+        }
+        
         orders.forEach(o => {
           const div = document.createElement('div');
           div.className = 'item';
@@ -447,12 +546,17 @@
       })
       .catch(error => {
         console.error('Error fetching orders:', error);
+        document.getElementById('orders').innerHTML = `<p>Error loading orders: ${error.message}</p>`;
       });
 
     // ✅ Auth Info
-    fetch(`${API_BASE_URL}/shop`)
-      .then(res => res.json())
+    fetch(`/shop`)
+      .then(res => {
+        if (!res.ok) throw new Error(`Failed to fetch shop info: ${res.status}`);
+        return res.json();
+      })
       .then(data => {
+        hideError();
         const container = document.getElementById('auth');
         const s = data.shop;
         container.innerHTML = `
@@ -465,6 +569,7 @@
       })
       .catch(error => {
         console.error('Error fetching shop info:', error);
+        document.getElementById('auth').innerHTML = `<p>Error loading shop info: ${error.message}</p>`;
       });
   </script>
 </body>

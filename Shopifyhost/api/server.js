@@ -2,7 +2,6 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
@@ -14,35 +13,13 @@ const app = express();
 const PORT = process.env.PORT;
 const FRONTEND_URL = process.env.FRONTEND_URL;
 
-// Enable CORS for Vercel frontend
-app.use(cors({
-  origin: FRONTEND_URL,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  credentials: true
-}));
+// Enable CORS for all origins in Vercel
+app.use(cors());
 app.use(express.json());
 
 // Shopify credentials
 const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_TOKEN;
-
-// MySQL connection pool
-let pool;
-async function getConnection() {
-  if (!pool) {
-    pool = mysql.createPool({
-      host: process.env.DB_HOST,
-      port: process.env.DB_PORT,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-  }
-  return pool;
-}
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -53,18 +30,6 @@ const supabase = createClient(
 // Initialize database on startup
 async function initDatabases() {
   try {
-    // Setup MySQL
-    const connection = await getConnection();
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS products (
-        id BIGINT PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        price DECIMAL(10,2) NOT NULL,
-        description TEXT,
-        image VARCHAR(1024)
-      )
-    `);
-    
     // Setup Supabase
     const { error: checkError } = await supabase
       .from('products')
@@ -90,7 +55,7 @@ async function initDatabases() {
       }
     }
     
-    console.log('Databases initialized');
+    console.log('Database initialized');
   } catch (err) {
     console.error('Database initialization failed:', err.message);
   }
@@ -103,6 +68,14 @@ initDatabases();
 app.get('/products', async (req, res) => {
   try {
     console.log('Fetching products from Shopify');
+    console.log(`Using shop: ${SHOP}`);
+    
+    if (!SHOP || !TOKEN) {
+      return res.status(500).json({ 
+        error: 'Shopify credentials not configured',
+        details: 'SHOPIFY_SHOP or SHOPIFY_TOKEN environment variables are missing'
+      });
+    }
     
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
@@ -112,13 +85,28 @@ app.get('/products', async (req, res) => {
     res.json(response.data.products);
   } catch (error) {
     console.error('Error fetching products:', error.message);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    res.status(500).json({ 
+      error: 'Failed to fetch products',
+      message: error.message,
+      statusCode: error.response?.status || 500
+    });
   }
 });
 
 // ✅ Fetch products tagged "in-db"
 app.get('/products-in-db', async (req, res) => {
   try {
+    if (!SHOP || !TOKEN) {
+      return res.status(500).json({ 
+        error: 'Shopify credentials not configured',
+        details: 'SHOPIFY_SHOP or SHOPIFY_TOKEN environment variables are missing'
+      });
+    }
+    
     const response = await axios.get(`https://${SHOP}/admin/api/2023-10/products.json`, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
@@ -128,7 +116,15 @@ app.get('/products-in-db', async (req, res) => {
     res.json(products);
   } catch (error) {
     console.error('Error fetching products in DB:', error.message);
-    res.status(500).json({ error: 'Failed to fetch products in DB' });
+    if (error.response) {
+      console.error('Response status:', error.response.status);
+      console.error('Response data:', error.response.data);
+    }
+    res.status(500).json({ 
+      error: 'Failed to fetch products in DB',
+      message: error.message,
+      statusCode: error.response?.status || 500
+    });
   }
 });
 
@@ -154,15 +150,6 @@ app.post('/add-to-db/:id', async (req, res) => {
     const productPrice = (p.variants && p.variants[0]) ? p.variants[0].price : '0.00';
     const productDescription = p.body_html || '';
     const productImage = (p.image && p.image.src) ? p.image.src : '';
-
-    // Add to MySQL
-    const connection = await getConnection();
-    await connection.query(`
-      INSERT INTO products (id, title, price, description, image)
-      VALUES (?, ?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE title=?, price=?, description=?, image=?`,
-      [p.id, productTitle, productPrice, productDescription, productImage,
-       productTitle, productPrice, productDescription, productImage]);
        
     // Add to Supabase
     try {
@@ -250,13 +237,6 @@ app.put('/edit/:id', async (req, res) => {
         'Content-Type': 'application/json'
       }
     });
-
-    // Update MySQL
-    const connection = await getConnection();
-    await connection.query(
-      `UPDATE products SET title=?, price=?, description=?, image=? WHERE id=?`,
-      [title, price, description, image, id]
-    );
     
     // Update Supabase
     await supabase
@@ -298,10 +278,6 @@ app.delete('/remove/:id', async (req, res) => {
     }, {
       headers: { 'X-Shopify-Access-Token': TOKEN }
     });
-
-    // Remove from MySQL
-    const connection = await getConnection();
-    await connection.query(`DELETE FROM products WHERE id=?`, [id]);
     
     // Remove from Supabase
     await supabase
@@ -373,27 +349,24 @@ app.get('/shop', async (req, res) => {
 app.get('/test-api', (req, res) => {
   res.json({
     message: 'API is working',
-    shopifyConfigured: true,
-    frontendUrl: FRONTEND_URL
+    shopifyConfigured: Boolean(SHOP && TOKEN),
+    frontendUrl: FRONTEND_URL,
+    env: {
+      shopConfigured: Boolean(SHOP && TOKEN),
+      supabaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
+    }
   });
 });
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
-
-// Middleware to replace placeholders in HTML files with environment variables
-app.use((req, res, next) => {
-  const _send = res.send;
-  res.send = function (body) {
-    // Only process HTML responses
-    if (typeof body === 'string' && body.includes('{{FRONTEND_URL}}')) {
-      body = body.replace(/\{\{FRONTEND_URL\}\}/g, FRONTEND_URL);
+  res.status(200).json({ 
+    status: 'ok',
+    env: {
+      shopConfigured: Boolean(SHOP && TOKEN),
+      supabaseConfigured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
     }
-    return _send.call(this, body);
-  };
-  next();
+  });
 });
 
 // Serve static files from public directory
