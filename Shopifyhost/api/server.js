@@ -36,9 +36,18 @@ async function initDatabases() {
       .select('count')
       .limit(1);
       
+    // Always try to clean up any test records regardless of table existence
+    try {
+      await supabase.from('products').delete().eq('shopify_id', 0);
+      console.log('Cleaned up any test records');
+    } catch (cleanupError) {
+      // Ignore cleanup errors
+    }
+      
     if (checkError && checkError.message.includes('does not exist')) {
       console.log('Creating Supabase products table...');
       
+      // Create the table by inserting a test record
       const { error: insertError } = await supabase
         .from('products')
         .insert([{
@@ -51,7 +60,18 @@ async function initDatabases() {
         
       if (!insertError || insertError.message.includes('already exists')) {
         console.log('Products table created');
-        await supabase.from('products').delete().eq('shopify_id', 0);
+        
+        // Make sure to delete the test record
+        const { error: deleteError } = await supabase
+          .from('products')
+          .delete()
+          .eq('shopify_id', 0);
+          
+        if (deleteError) {
+          console.error('Failed to delete test record:', deleteError.message);
+        } else {
+          console.log('Test record deleted successfully');
+        }
       }
     }
     
