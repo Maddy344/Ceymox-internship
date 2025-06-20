@@ -13,30 +13,43 @@ const CUSTOM_THRESHOLDS_FILE = path.join(__dirname, 'data', 'custom-thresholds.j
  */
 async function getCustomThresholds() {
   try {
-    // First try to get from database
-    const { getCustomThresholdsFromDB } = require('./database');
-    const dbThresholds = await getCustomThresholdsFromDB();
+    // Try file system first as it's more reliable in Vercel
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
     
-    if (dbThresholds && Object.keys(dbThresholds).length > 0) {
-      console.log('Retrieved custom thresholds from database:', dbThresholds);
-      
-      // Also save to local file for fallback
-      try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(dbThresholds, null, 2));
-      } catch (fileError) {
-        console.error('Error saving custom thresholds to file:', fileError);
-      }
-      
-      return dbThresholds;
+    try {
+      const data = await fs.readFile(CUSTOM_THRESHOLDS_FILE, 'utf8');
+      const fileThresholds = JSON.parse(data);
+      console.log('Retrieved custom thresholds from file:', fileThresholds);
+      return fileThresholds;
+    } catch (fileError) {
+      console.log('No custom thresholds file found or error reading it:', fileError.message);
     }
     
-    // If database retrieval failed or returned empty, try local file
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    const data = await fs.readFile(CUSTOM_THRESHOLDS_FILE, 'utf8');
-    return JSON.parse(data);
+    // If file system failed, try database
+    try {
+      const { getCustomThresholdsFromDB } = require('./database');
+      const dbThresholds = await getCustomThresholdsFromDB();
+      
+      if (dbThresholds && Object.keys(dbThresholds).length > 0) {
+        console.log('Retrieved custom thresholds from database:', dbThresholds);
+        
+        // Save to local file for future use
+        try {
+          await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(dbThresholds, null, 2));
+        } catch (writeError) {
+          console.error('Error saving custom thresholds to file:', writeError);
+        }
+        
+        return dbThresholds;
+      }
+    } catch (dbError) {
+      console.error('Error getting custom thresholds from database:', dbError);
+    }
+    
+    // If both methods failed, return empty object
+    return {};
   } catch (err) {
-    console.log('No custom thresholds found, returning empty object');
+    console.log('Error in getCustomThresholds:', err);
     return {};
   }
 }

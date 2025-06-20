@@ -145,7 +145,38 @@
       document.getElementById('cancel-delete-btn').addEventListener('click', cancelDeleteMode);
     });
     
+    // Store emails in localStorage
+    function saveEmailsToLocalStorage(emailsData) {
+      try {
+        localStorage.setItem('inbox-emails', JSON.stringify(emailsData));
+      } catch (e) {
+        console.error('Error saving emails to localStorage:', e);
+      }
+    }
+    
+    // Get emails from localStorage
+    function getEmailsFromLocalStorage() {
+      try {
+        const storedEmails = localStorage.getItem('inbox-emails');
+        if (storedEmails) {
+          return JSON.parse(storedEmails);
+        }
+      } catch (e) {
+        console.error('Error getting emails from localStorage:', e);
+      }
+      return null;
+    }
+    
     async function loadEmails() {
+      // First try to get from localStorage for immediate display
+      const storedEmails = getEmailsFromLocalStorage();
+      if (storedEmails && storedEmails.length > 0) {
+        console.log(`Loaded ${storedEmails.length} emails from localStorage`);
+        emails = storedEmails;
+        displayEmailList();
+      }
+      
+      // Then try to get from server
       try {
         console.log('Loading emails from server...');
         const response = await fetch('/api/emails');
@@ -154,13 +185,23 @@
           throw new Error(`Server returned ${response.status}: ${response.statusText}`);
         }
         
-        emails = await response.json();
-        console.log(`Loaded ${emails.length} emails from server`);
-        displayEmailList();
+        const serverEmails = await response.json();
+        console.log(`Loaded ${serverEmails.length} emails from server`);
+        
+        // Only update if we got emails from server and they're different from what we have
+        if (serverEmails.length > 0 && 
+            (emails.length !== serverEmails.length || 
+             JSON.stringify(emails) !== JSON.stringify(serverEmails))) {
+          emails = serverEmails;
+          saveEmailsToLocalStorage(emails);
+          displayEmailList();
+        }
       } catch (error) {
         console.error('Error loading emails:', error);
-        document.getElementById('email-list').innerHTML = 
-          '<div class="alert alert-danger">Error loading emails. Please try refreshing the page.</div>';
+        if (!storedEmails) {
+          document.getElementById('email-list').innerHTML = 
+            '<div class="alert alert-danger">Error loading emails. Please try refreshing the page.</div>';
+        }
       }
     }
     
@@ -196,14 +237,19 @@
       const email = emails.find(e => e.id === emailId);
       if (!email) return;
       
-      // Mark as read
+      // Mark as read locally first
       if (!email.read) {
+        email.read = true;
+        saveEmailsToLocalStorage(emails); // Update localStorage
+        displayEmailList(); // Refresh the list
+        
+        // Then try to update on server
         try {
           await fetch(`/api/emails/${emailId}/read`, { method: 'POST' });
-          email.read = true;
-          displayEmailList(); // Refresh the list
+          console.log(`Marked email ${emailId} as read on server`);
         } catch (error) {
-          console.error('Error marking email as read:', error);
+          console.error('Error marking email as read on server:', error);
+          // Continue anyway since we've already updated locally
         }
       }
       
@@ -272,6 +318,13 @@
         return;
       }
       
+      // Delete locally first
+      emails = emails.filter(email => !emailIds.includes(email.id));
+      saveEmailsToLocalStorage(emails); // Update localStorage
+      displayEmailList();
+      cancelDeleteMode();
+      
+      // Then try to delete on server
       try {
         const response = await fetch('/api/emails/delete', {
           method: 'POST',
@@ -284,16 +337,13 @@
         const data = await response.json();
         
         if (data.success) {
-          // Remove deleted emails from local array
-          emails = emails.filter(email => !emailIds.includes(email.id));
-          displayEmailList();
-          cancelDeleteMode();
+          console.log(`Deleted ${emailIds.length} emails on server`);
         } else {
-          alert('Failed to delete emails.');
+          console.error('Failed to delete emails on server');
         }
       } catch (error) {
-        console.error('Error deleting emails:', error);
-        alert('Failed to delete emails. Check console for details.');
+        console.error('Error deleting emails on server:', error);
+        // Continue anyway since we've already updated locally
       }
     }
   </script>

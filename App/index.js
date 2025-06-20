@@ -118,11 +118,18 @@ app.get('/api/settings', async (req, res) => {
 // API route to save notification settings
 app.post('/api/settings', express.json(), async (req, res) => {
   try {
+    console.log('Saving settings:', req.body);
+    // Save to file system first to ensure it works
+    const settingsFile = path.join(__dirname, 'data', 'notification-settings.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(settingsFile, JSON.stringify(req.body, null, 2));
+    
+    // Then try to save to database
     const success = await saveNotificationSettings(req.body);
     if (success) {
       res.json({ success: true, message: 'Settings saved successfully' });
     } else {
-      res.status(500).json({ success: false, error: 'Failed to save settings' });
+      res.json({ success: true, message: 'Settings saved to file system only' });
     }
   } catch (error) {
     console.error('Error saving settings:', error);
@@ -175,11 +182,18 @@ app.get('/api/custom-thresholds', async (req, res) => {
 // API route to save custom thresholds
 app.post('/api/custom-thresholds', express.json(), async (req, res) => {
   try {
+    console.log('Saving custom thresholds:', req.body);
+    // Save to file system first to ensure it works
+    const thresholdsFile = path.join(__dirname, 'data', 'custom-thresholds.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(thresholdsFile, JSON.stringify(req.body, null, 2));
+    
+    // Then try to save to database
     const success = await saveCustomThresholds(req.body);
     if (success) {
       res.json({ success: true, message: 'Custom thresholds saved successfully' });
     } else {
-      res.status(500).json({ success: false, error: 'Failed to save custom thresholds' });
+      res.json({ success: true, message: 'Custom thresholds saved to file system only' });
     }
   } catch (error) {
     console.error('Error saving custom thresholds:', error);
@@ -219,16 +233,7 @@ app.get('/api/debug-thresholds', async (req, res) => {
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
   try {
-    // First try to get emails from database
-    const { getEmailsFromDB } = require('./database');
-    const dbEmails = await getEmailsFromDB();
-    
-    if (dbEmails && dbEmails.length > 0) {
-      console.log(`Retrieved ${dbEmails.length} emails from database`);
-      return res.json(dbEmails);
-    }
-    
-    // Fallback to file system if database retrieval failed or returned empty
+    // Try file system first as it's more reliable in Vercel
     const emailsFile = path.join(__dirname, 'data', 'emails.json');
     
     let emails = [];
@@ -236,12 +241,38 @@ app.get('/api/emails', async (req, res) => {
       const emailsData = await fs.readFile(emailsFile, 'utf8');
       emails = JSON.parse(emailsData);
       console.log(`Retrieved ${emails.length} emails from file system`);
+      
+      if (emails.length > 0) {
+        return res.json(emails);
+      }
     } catch (err) {
       console.log('No emails file found or error reading it:', err.message);
-      // File doesn't exist yet, return empty array
     }
     
-    res.json(emails);
+    // If file system failed or returned empty, try database
+    try {
+      const { getEmailsFromDB } = require('./database');
+      const dbEmails = await getEmailsFromDB();
+      
+      if (dbEmails && dbEmails.length > 0) {
+        console.log(`Retrieved ${dbEmails.length} emails from database`);
+        
+        // Save to file system for future use
+        try {
+          await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+          await fs.writeFile(emailsFile, JSON.stringify(dbEmails, null, 2));
+        } catch (writeErr) {
+          console.error('Error saving emails to file:', writeErr);
+        }
+        
+        return res.json(dbEmails);
+      }
+    } catch (dbErr) {
+      console.error('Error getting emails from database:', dbErr);
+    }
+    
+    // If both methods failed, return empty array
+    res.json([]);
   } catch (error) {
     console.error('Error getting emails:', error);
     res.status(500).json({ error: 'Failed to get emails' });
