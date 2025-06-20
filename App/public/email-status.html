@@ -147,11 +147,20 @@
     
     async function loadEmails() {
       try {
+        console.log('Loading emails from server...');
         const response = await fetch('/api/emails');
+        
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        
         emails = await response.json();
+        console.log(`Loaded ${emails.length} emails from server`);
         displayEmailList();
       } catch (error) {
         console.error('Error loading emails:', error);
+        document.getElementById('email-list').innerHTML = 
+          '<div class="alert alert-danger">Error loading emails. Please try refreshing the page.</div>';
       }
     }
     

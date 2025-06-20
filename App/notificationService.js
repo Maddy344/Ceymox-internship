@@ -11,10 +11,26 @@ const SETTINGS_FILE = path.join(__dirname, 'data', 'notification-settings.json')
  */
 async function getNotificationSettings() {
   try {
-    // Create data directory if it doesn't exist
+    // First try to get settings from database
+    const { getNotificationSettingsFromDB } = require('./database');
+    const dbSettings = await getNotificationSettingsFromDB();
+    if (dbSettings) {
+      console.log('Retrieved settings from database:', dbSettings);
+      
+      // Also save to local file for fallback
+      try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+        await fs.writeFile(SETTINGS_FILE, JSON.stringify(dbSettings, null, 2));
+      } catch (fileError) {
+        console.error('Error saving settings to file:', fileError);
+      }
+      
+      return dbSettings;
+    }
+    
+    // If database retrieval failed, try local file
     await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
     
-    // Read settings or use defaults
     try {
       const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
       return JSON.parse(settingsData);
@@ -51,11 +67,20 @@ async function getNotificationSettings() {
  */
 async function saveNotificationSettings(settings) {
   try {
-    // Create data directory if it doesn't exist
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    // First save to database
+    const { saveNotificationSettingsToDB } = require('./database');
+    const dbSuccess = await saveNotificationSettingsToDB(settings);
+    console.log('Saved settings to database:', dbSuccess);
     
-    // Save settings
-    await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    // Also save to local file as backup
+    try {
+      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+      await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+    } catch (fileError) {
+      console.error('Error saving settings to file:', fileError);
+      // Continue even if file save fails
+    }
+    
     return true;
   } catch (error) {
     console.error('Error saving notification settings:', error);
@@ -157,18 +182,7 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
     
     // Always save email message for Email Status Checker (unless dashboard notifications are disabled)
     if (!settings.disableDashboard) {
-      const emailsFile = path.join(__dirname, 'data', 'emails.json');
-      
-      // Read existing emails or create new array
-      let emails = [];
-      try {
-        const emailsData = await fs.readFile(emailsFile, 'utf8');
-        emails = JSON.parse(emailsData);
-      } catch (err) {
-        // File doesn't exist yet, that's ok
-      }
-      
-      // Add new email to the beginning of the array
+      // Create email record
       const emailRecord = {
         id: Date.now(),
         subject: `Low Stock Alert: ${lowStockItems.length} products below threshold`,
@@ -179,11 +193,36 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
         read: false
       };
       
-      emails.unshift(emailRecord);
+      // First try to save to database
+      try {
+        const { saveEmailToDB } = require('./database');
+        const dbSuccess = await saveEmailToDB(emailRecord);
+        console.log('Email saved to database inbox:', dbSuccess);
+      } catch (dbError) {
+        console.error('Error saving email to database:', dbError);
+      }
       
-      // Store all emails forever - no limit
-      await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
-      console.log('Email saved to inbox');
+      // Also save to local file as backup
+      try {
+        const emailsFile = path.join(__dirname, 'data', 'emails.json');
+        
+        // Read existing emails or create new array
+        let emails = [];
+        try {
+          const emailsData = await fs.readFile(emailsFile, 'utf8');
+          emails = JSON.parse(emailsData);
+        } catch (err) {
+          // File doesn't exist yet, that's ok
+        }
+        
+        emails.unshift(emailRecord);
+        
+        // Store all emails forever - no limit
+        await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
+        console.log('Email saved to file inbox');
+      } catch (fileError) {
+        console.error('Error saving email to file:', fileError);
+      }
     } else {
       console.log('Dashboard notifications are disabled - email not saved to inbox');
     }

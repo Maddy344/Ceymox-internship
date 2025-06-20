@@ -408,9 +408,15 @@
     
     async function loadSavedSettings() {
       try {
+        console.log('Loading settings from server...');
         // Load notification settings from backend
         const response = await fetch('/api/settings');
+        if (!response.ok) {
+          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+        }
+        
         const settings = await response.json();
+        console.log('Settings loaded from server:', settings);
         
         document.getElementById('email').value = settings.email || '';
         document.getElementById('disable-email').checked = settings.disableEmail || false;
@@ -420,9 +426,17 @@
         
         // Update dashboard threshold field
         document.getElementById('threshold').value = settings.defaultThreshold || 5;
+        
+        // Also update localStorage for backup
+        localStorage.setItem('notification-email', settings.email || '');
+        localStorage.setItem('disable-email', settings.disableEmail || false);
+        localStorage.setItem('disable-dashboard', settings.disableDashboard || false);
+        localStorage.setItem('default-threshold', settings.defaultThreshold || 5);
+        localStorage.setItem('enable-auto-check', settings.enableAutoCheck || false);
       } catch (error) {
-        console.error('Error loading settings:', error);
+        console.error('Error loading settings from server:', error);
         // Fallback to localStorage
+        console.log('Falling back to localStorage settings');
         const email = localStorage.getItem('notification-email') || '';
         const disableEmail = localStorage.getItem('disable-email') === 'true';
         const disableDashboard = localStorage.getItem('disable-dashboard') === 'true';
@@ -473,7 +487,11 @@
           localStorage.setItem('disable-email', disableEmail);
           localStorage.setItem('disable-dashboard', disableDashboard);
           
-          alert('Notification settings saved!');
+          // Force reload to ensure settings are applied
+          alert('Notification settings saved! The page will reload to apply changes.');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         } else {
           alert('Failed to save settings: ' + data.error);
         }
@@ -516,7 +534,11 @@
           // Update the threshold in the dashboard tab
           document.getElementById('threshold').value = defaultThreshold;
           
-          alert('Threshold settings saved!');
+          // Force reload to ensure settings are applied
+          alert('Threshold settings saved! The page will reload to apply changes.');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         } else {
           alert('Failed to save threshold settings: ' + data.error);
         }
@@ -914,7 +936,14 @@
         const data = await response.json();
         
         if (data.success) {
-          alert('Custom thresholds saved successfully!');
+          // Store custom thresholds in localStorage as well for UI state
+          localStorage.setItem('custom-thresholds', JSON.stringify(customThresholds));
+          
+          // Force reload to ensure settings are applied
+          alert('Custom thresholds saved successfully! The page will reload to apply changes.');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
         } else {
           alert(`Failed to save custom thresholds: ${data.error}`);
         }

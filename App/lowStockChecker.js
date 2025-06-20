@@ -13,10 +13,30 @@ const CUSTOM_THRESHOLDS_FILE = path.join(__dirname, 'data', 'custom-thresholds.j
  */
 async function getCustomThresholds() {
   try {
+    // First try to get from database
+    const { getCustomThresholdsFromDB } = require('./database');
+    const dbThresholds = await getCustomThresholdsFromDB();
+    
+    if (dbThresholds && Object.keys(dbThresholds).length > 0) {
+      console.log('Retrieved custom thresholds from database:', dbThresholds);
+      
+      // Also save to local file for fallback
+      try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+        await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(dbThresholds, null, 2));
+      } catch (fileError) {
+        console.error('Error saving custom thresholds to file:', fileError);
+      }
+      
+      return dbThresholds;
+    }
+    
+    // If database retrieval failed or returned empty, try local file
     await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
     const data = await fs.readFile(CUSTOM_THRESHOLDS_FILE, 'utf8');
     return JSON.parse(data);
   } catch (err) {
+    console.log('No custom thresholds found, returning empty object');
     return {};
   }
 }
@@ -28,8 +48,20 @@ async function getCustomThresholds() {
  */
 async function saveCustomThresholds(thresholds) {
   try {
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(thresholds, null, 2));
+    // First save to database
+    const { saveCustomThresholdsToDB } = require('./database');
+    const dbSuccess = await saveCustomThresholdsToDB(thresholds);
+    console.log('Saved custom thresholds to database:', dbSuccess);
+    
+    // Also save to local file as backup
+    try {
+      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+      await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(thresholds, null, 2));
+    } catch (fileError) {
+      console.error('Error saving custom thresholds to file:', fileError);
+      // Continue even if file save fails
+    }
+    
     return true;
   } catch (error) {
     console.error('Error saving custom thresholds:', error);

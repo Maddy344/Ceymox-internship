@@ -219,13 +219,25 @@ app.get('/api/debug-thresholds', async (req, res) => {
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
   try {
+    // First try to get emails from database
+    const { getEmailsFromDB } = require('./database');
+    const dbEmails = await getEmailsFromDB();
+    
+    if (dbEmails && dbEmails.length > 0) {
+      console.log(`Retrieved ${dbEmails.length} emails from database`);
+      return res.json(dbEmails);
+    }
+    
+    // Fallback to file system if database retrieval failed or returned empty
     const emailsFile = path.join(__dirname, 'data', 'emails.json');
     
     let emails = [];
     try {
       const emailsData = await fs.readFile(emailsFile, 'utf8');
       emails = JSON.parse(emailsData);
+      console.log(`Retrieved ${emails.length} emails from file system`);
     } catch (err) {
+      console.log('No emails file found or error reading it:', err.message);
       // File doesn't exist yet, return empty array
     }
     
@@ -240,6 +252,17 @@ app.get('/api/emails', async (req, res) => {
 app.post('/api/emails/:id/read', async (req, res) => {
   try {
     const emailId = parseInt(req.params.id);
+    
+    // First try to mark as read in database
+    const { markEmailAsReadInDB } = require('./database');
+    const dbSuccess = await markEmailAsReadInDB(emailId);
+    
+    if (dbSuccess) {
+      console.log(`Marked email ${emailId} as read in database`);
+      return res.json({ success: true });
+    }
+    
+    // Fallback to file system if database update failed
     const emailsFile = path.join(__dirname, 'data', 'emails.json');
     
     let emails = [];
@@ -254,6 +277,7 @@ app.post('/api/emails/:id/read', async (req, res) => {
     if (email) {
       email.read = true;
       await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
+      console.log(`Marked email ${emailId} as read in file system`);
       res.json({ success: true });
     } else {
       res.status(404).json({ error: 'Email not found' });
@@ -268,6 +292,17 @@ app.post('/api/emails/:id/read', async (req, res) => {
 app.post('/api/emails/delete', express.json(), async (req, res) => {
   try {
     const emailIds = req.body.emailIds;
+    
+    // First try to delete from database
+    const { deleteEmailsFromDB } = require('./database');
+    const dbSuccess = await deleteEmailsFromDB(emailIds);
+    
+    if (dbSuccess) {
+      console.log(`Deleted ${emailIds.length} emails from database`);
+      return res.json({ success: true, deletedCount: emailIds.length });
+    }
+    
+    // Fallback to file system if database deletion failed
     const emailsFile = path.join(__dirname, 'data', 'emails.json');
     
     let emails = [];
@@ -282,6 +317,7 @@ app.post('/api/emails/delete', express.json(), async (req, res) => {
     const remainingEmails = emails.filter(email => !emailIds.includes(email.id));
     
     await fs.writeFile(emailsFile, JSON.stringify(remainingEmails, null, 2));
+    console.log(`Deleted ${emailIds.length} emails from file system`);
     res.json({ success: true, deletedCount: emailIds.length });
   } catch (error) {
     console.error('Error deleting emails:', error);

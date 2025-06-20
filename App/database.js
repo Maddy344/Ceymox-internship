@@ -7,6 +7,9 @@ const supabaseKey = process.env.SUPABASE_ANON_KEY;
 let supabase = null;
 if (supabaseUrl && supabaseKey && supabaseUrl !== 'your_supabase_url_here') {
   supabase = createClient(supabaseUrl, supabaseKey);
+  console.log('Supabase client initialized with URL:', supabaseUrl);
+} else {
+  console.warn('Supabase credentials missing or invalid. Database operations will be skipped.');
 }
 
 /**
@@ -157,10 +160,376 @@ async function removeShopData(shop) {
     await supabase.from('shops').delete().eq('shop_domain', shop);
     await supabase.from('shop_settings').delete().eq('shop_domain', shop);
     await supabase.from('stock_logs').delete().eq('shop_domain', shop);
+    await supabase.from('notification_settings').delete().eq('shop_domain', shop);
+    await supabase.from('custom_thresholds').delete().eq('shop_domain', shop);
+    await supabase.from('emails').delete().eq('shop_domain', shop);
+    await supabase.from('low_stock_history').delete().eq('shop_domain', shop);
     
     console.log(`Removed all data for shop: ${shop}`);
   } catch (error) {
     console.error('Error removing shop data:', error);
+  }
+}
+
+/**
+ * Get notification settings from Supabase
+ */
+async function getNotificationSettingsFromDB() {
+  if (!supabase) {
+    console.log('Supabase not configured, returning default settings');
+    return {
+      email: process.env.NOTIFICATION_EMAIL || '',
+      disableEmail: false,
+      disableDashboard: false,
+      defaultThreshold: 5,
+      enableAutoCheck: true
+    };
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { data, error } = await supabase
+      .from('notification_settings')
+      .select('*')
+      .eq('shop_domain', shop)
+      .single();
+    
+    if (error && error.code !== 'PGRST116') {
+      console.error('Error getting notification settings:', error);
+      throw error;
+    }
+    
+    if (!data) {
+      // Create default settings
+      const defaultSettings = {
+        shop_domain: shop,
+        email: process.env.NOTIFICATION_EMAIL || '',
+        disable_email: false,
+        disable_dashboard: false,
+        default_threshold: 5,
+        enable_auto_check: true
+      };
+      
+      const { error: insertError } = await supabase
+        .from('notification_settings')
+        .insert(defaultSettings);
+      
+      if (insertError) throw insertError;
+      
+      return {
+        email: defaultSettings.email,
+        disableEmail: defaultSettings.disable_email,
+        disableDashboard: defaultSettings.disable_dashboard,
+        defaultThreshold: defaultSettings.default_threshold,
+        enableAutoCheck: defaultSettings.enable_auto_check
+      };
+    }
+    
+    // Convert from DB format to app format
+    return {
+      email: data.email || '',
+      disableEmail: data.disable_email || false,
+      disableDashboard: data.disable_dashboard || false,
+      defaultThreshold: data.default_threshold || 5,
+      enableAutoCheck: data.enable_auto_check || true
+    };
+  } catch (error) {
+    console.error('Error getting notification settings from DB:', error);
+    return {
+      email: process.env.NOTIFICATION_EMAIL || '',
+      disableEmail: false,
+      disableDashboard: false,
+      defaultThreshold: 5,
+      enableAutoCheck: true
+    };
+  }
+}
+
+/**
+ * Save notification settings to Supabase
+ */
+async function saveNotificationSettingsToDB(settings) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping settings save');
+    return false;
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { error } = await supabase
+      .from('notification_settings')
+      .upsert({
+        shop_domain: shop,
+        email: settings.email || '',
+        disable_email: settings.disableEmail || false,
+        disable_dashboard: settings.disableDashboard || false,
+        default_threshold: settings.defaultThreshold || 5,
+        enable_auto_check: settings.enableAutoCheck || true,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'shop_domain'
+      });
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error saving notification settings to DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Get custom thresholds from Supabase
+ */
+async function getCustomThresholdsFromDB() {
+  if (!supabase) {
+    console.log('Supabase not configured, returning empty thresholds');
+    return {};
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { data, error } = await supabase
+      .from('custom_thresholds')
+      .select('product_id, threshold')
+      .eq('shop_domain', shop);
+    
+    if (error) throw error;
+    
+    // Convert array to object with product_id as key
+    const thresholds = {};
+    if (data) {
+      data.forEach(item => {
+        thresholds[item.product_id] = item.threshold;
+      });
+    }
+    
+    return thresholds;
+  } catch (error) {
+    console.error('Error getting custom thresholds from DB:', error);
+    return {};
+  }
+}
+
+/**
+ * Save custom thresholds to Supabase
+ */
+async function saveCustomThresholdsToDB(thresholds) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping thresholds save');
+    return false;
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    // Delete existing thresholds
+    const { error: deleteError } = await supabase
+      .from('custom_thresholds')
+      .delete()
+      .eq('shop_domain', shop);
+    
+    if (deleteError) throw deleteError;
+    
+    // Convert object to array of records
+    const records = Object.entries(thresholds).map(([productId, threshold]) => ({
+      shop_domain: shop,
+      product_id: productId,
+      threshold: threshold
+    }));
+    
+    // Only insert if there are records
+    if (records.length > 0) {
+      const { error } = await supabase
+        .from('custom_thresholds')
+        .insert(records);
+      
+      if (error) throw error;
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error saving custom thresholds to DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Save email to Supabase
+ */
+async function saveEmailToDB(emailRecord) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping email save');
+    return false;
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { error } = await supabase
+      .from('emails')
+      .insert({
+        shop_domain: shop,
+        subject: emailRecord.subject,
+        from_address: emailRecord.from,
+        to_address: emailRecord.to,
+        html_content: emailRecord.html,
+        read: false
+      });
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error saving email to DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Get emails from Supabase
+ */
+async function getEmailsFromDB() {
+  if (!supabase) {
+    console.log('Supabase not configured, returning empty emails');
+    return [];
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { data, error } = await supabase
+      .from('emails')
+      .select('*')
+      .eq('shop_domain', shop)
+      .order('created_at', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Convert from DB format to app format
+    return data.map(email => ({
+      id: email.id,
+      subject: email.subject,
+      from: email.from_address,
+      to: email.to_address,
+      date: email.created_at,
+      html: email.html_content,
+      read: email.read
+    }));
+  } catch (error) {
+    console.error('Error getting emails from DB:', error);
+    return [];
+  }
+}
+
+/**
+ * Mark email as read in Supabase
+ */
+async function markEmailAsReadInDB(emailId) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping email update');
+    return false;
+  }
+  
+  try {
+    const { error } = await supabase
+      .from('emails')
+      .update({ read: true })
+      .eq('id', emailId);
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error marking email as read in DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete emails from Supabase
+ */
+async function deleteEmailsFromDB(emailIds) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping email deletion');
+    return false;
+  }
+  
+  try {
+    const { error } = await supabase
+      .from('emails')
+      .delete()
+      .in('id', emailIds);
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting emails from DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Save low stock history to Supabase
+ */
+async function saveLowStockHistoryToDB(entry) {
+  if (!supabase) {
+    console.log('Supabase not configured, skipping history save');
+    return false;
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { error } = await supabase
+      .from('low_stock_history')
+      .insert({
+        shop_domain: shop,
+        date: entry.date,
+        threshold: entry.threshold,
+        item_count: entry.itemCount,
+        items: entry.items
+      });
+    
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error saving low stock history to DB:', error);
+    return false;
+  }
+}
+
+/**
+ * Get low stock history from Supabase
+ */
+async function getLowStockHistoryFromDB() {
+  if (!supabase) {
+    console.log('Supabase not configured, returning empty history');
+    return [];
+  }
+  
+  try {
+    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    const { data, error } = await supabase
+      .from('low_stock_history')
+      .select('*')
+      .eq('shop_domain', shop)
+      .order('date', { ascending: false });
+    
+    if (error) throw error;
+    
+    // Convert from DB format to app format
+    return data.map(entry => ({
+      date: entry.date,
+      threshold: entry.threshold,
+      itemCount: entry.item_count,
+      items: entry.items
+    }));
+  } catch (error) {
+    console.error('Error getting low stock history from DB:', error);
+    return [];
   }
 }
 
@@ -170,5 +539,15 @@ module.exports = {
   saveShopSettings,
   getShopSettings,
   logLowStockAlert,
-  removeShopData
+  removeShopData,
+  getNotificationSettingsFromDB,
+  saveNotificationSettingsToDB,
+  getCustomThresholdsFromDB,
+  saveCustomThresholdsToDB,
+  saveEmailToDB,
+  getEmailsFromDB,
+  markEmailAsReadInDB,
+  deleteEmailsFromDB,
+  saveLowStockHistoryToDB,
+  getLowStockHistoryFromDB
 };
