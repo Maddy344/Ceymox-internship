@@ -298,7 +298,7 @@ async function saveLowStockHistoryToDB(entry) {
   }
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = 'fakestore-practice1.myshopify.com';
     
     const { error } = await supabase
       .from('low_stock_history')
@@ -311,6 +311,7 @@ async function saveLowStockHistoryToDB(entry) {
       });
     
     if (error) throw error;
+    console.log('📈 Low stock history saved to database');
     return true;
   } catch (error) {
     console.error('Error saving low stock history to DB:', error);
@@ -328,7 +329,7 @@ async function getLowStockHistoryFromDB() {
   }
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = 'fakestore-practice1.myshopify.com';
     
     const { data, error } = await supabase
       .from('low_stock_history')
@@ -337,6 +338,8 @@ async function getLowStockHistoryFromDB() {
       .order('date', { ascending: false });
     
     if (error) throw error;
+    
+    console.log(`📈 Retrieved ${data.length} history entries from database`);
     
     // Convert from DB format to app format
     return data.map(entry => ({

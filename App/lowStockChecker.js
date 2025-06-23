@@ -270,11 +270,9 @@ async function getLowStockHistory(period = 'daily', selectedDate = null) {
  * @param {Array} lowStockItems - Array of products with low stock
  */
 async function sendLowStockNotifications(lowStockItems) {
-  // Log to console (for development)
-  console.log(`Found ${lowStockItems.length} items with low stock`);
+  console.log(`📦 Processing ${lowStockItems.length} low stock items for notifications`);
   
   for (const item of lowStockItems) {
-    // Calculate total inventory for the product
     let totalInventory = 0;
     item.variants.forEach(variant => {
       if (variant.inventory_management === 'shopify') {
@@ -284,14 +282,21 @@ async function sendLowStockNotifications(lowStockItems) {
     
     console.log(`- ${item.title}: ${totalInventory} in stock`);
     
-    // Log to database (use default shop for now)
+    // Save individual product alert to emails table
     try {
-      console.log('Low stock item logged:', {
-        productId: item.id,
-        stock: totalInventory
-      });
+      const { saveEmailToDB } = require('./database');
+      const emailRecord = {
+        subject: `Low Stock Alert: ${item.title}`,
+        from: 'Low Stock Alert <alerts@lowstockalert.com>',
+        to: 'vampirepes24@gmail.com',
+        html: `<h3>Low Stock Alert</h3><p><strong>${item.title}</strong> is running low with only <strong>${totalInventory}</strong> items in stock.</p>`,
+        read: false
+      };
+      
+      const saved = await saveEmailToDB(emailRecord);
+      console.log(`📧 Email record saved for ${item.title}:`, saved);
     } catch (error) {
-      console.error('Error logging to database:', error);
+      console.error('Error saving email record:', error);
     }
   }
 }

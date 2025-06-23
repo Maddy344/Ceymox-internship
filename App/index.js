@@ -43,7 +43,7 @@ app.get('/', (req, res) => {
 // Route to check for low stock items
 app.get('/check-low-stock', async (req, res) => {
   try {
-    console.log('Checking for low stock items...');
+    console.log('🔍 Checking for low stock items...');
     const defaultThreshold = req.query.threshold ? parseInt(req.query.threshold) : 5;
     console.log(`Using default threshold: ${defaultThreshold}`);
     
@@ -51,6 +51,17 @@ app.get('/check-low-stock', async (req, res) => {
     console.log(`Found ${lowStockItems.length} low stock items`);
     
     if (lowStockItems.length > 0) {
+      // Log each low stock item
+      lowStockItems.forEach(item => {
+        let totalInventory = 0;
+        item.variants.forEach(variant => {
+          if (variant.inventory_management === 'shopify') {
+            totalInventory += variant.inventory_quantity;
+          }
+        });
+        console.log(`🔍 Product: ${item.title}, Quantity: ${totalInventory}, Threshold: ${defaultThreshold}`);
+      });
+      
       await sendLowStockNotifications(lowStockItems);
       
       // Send email notification if enabled
@@ -58,26 +69,10 @@ app.get('/check-low-stock', async (req, res) => {
       console.log('Notification settings:', settings);
       
       if (!settings.disableEmail) {
-        console.log('Email notifications are enabled, sending email...');
+        console.log('📧 Email notifications are enabled, sending email to:', settings.email);
         try {
           const emailSent = await sendEmailNotification(lowStockItems, defaultThreshold);
           console.log('Email notification sent:', emailSent);
-          
-          // Check if email preview file exists and log its contents
-          try {
-            const emailPreviewPath = path.join(__dirname, 'data', 'email-preview.txt');
-            const emailPreviewExists = await fileExists(emailPreviewPath);
-            
-            if (emailPreviewExists) {
-              const emailPreviewContent = await fs.readFile(emailPreviewPath, 'utf8');
-              console.log('Email preview information:');
-              console.log(emailPreviewContent);
-            } else {
-              console.log('No email preview file found');
-            }
-          } catch (previewError) {
-            console.error('Error checking email preview:', previewError);
-          }
         } catch (emailError) {
           console.error('Error sending email notification:', emailError);
         }
@@ -96,15 +91,7 @@ app.get('/check-low-stock', async (req, res) => {
   }
 });
 
-// Helper function to check if a file exists
-async function fileExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
+
 
 // API route to get notification settings
 app.get('/api/settings', async (req, res) => {
@@ -121,24 +108,9 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', express.json(), async (req, res) => {
   try {
     console.log('Saving settings:', req.body);
-    
-    // Save to file system first to ensure it works
-    const settingsFile = path.join(__dirname, 'data', 'notification-settings.json');
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    await fs.writeFile(settingsFile, JSON.stringify(req.body, null, 2));
-    console.log('Settings saved to file system successfully');
-    
-    // Return success immediately after file save
+    const dbSuccess = await saveNotificationSettingsToDB(req.body);
+    console.log('Settings saved to database:', dbSuccess);
     res.json({ success: true, message: 'Settings saved successfully' });
-    
-    // Then try to save to database in the background
-    try {
-      const { saveNotificationSettingsToDB } = require('./database');
-      const dbSuccess = await saveNotificationSettingsToDB(req.body);
-      console.log('Settings saved to database:', dbSuccess);
-    } catch (dbError) {
-      console.error('Error saving settings to database (non-blocking):', dbError);
-    }
   } catch (error) {
     console.error('Error in settings API:', error);
     res.status(500).json({ success: false, error: 'Failed to save settings' });
@@ -191,24 +163,9 @@ app.get('/api/custom-thresholds', async (req, res) => {
 app.post('/api/custom-thresholds', express.json(), async (req, res) => {
   try {
     console.log('Saving custom thresholds:', req.body);
-    
-    // Save to file system first to ensure it works
-    const thresholdsFile = path.join(__dirname, 'data', 'custom-thresholds.json');
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    await fs.writeFile(thresholdsFile, JSON.stringify(req.body, null, 2));
-    console.log('Custom thresholds saved to file system successfully');
-    
-    // Return success immediately after file save
+    const dbSuccess = await saveCustomThresholdsToDB(req.body);
+    console.log('Custom thresholds saved to database:', dbSuccess);
     res.json({ success: true, message: 'Custom thresholds saved successfully' });
-    
-    // Then try to save to database in the background
-    try {
-      const { saveCustomThresholdsToDB } = require('./database');
-      const dbSuccess = await saveCustomThresholdsToDB(req.body);
-      console.log('Custom thresholds saved to database:', dbSuccess);
-    } catch (dbError) {
-      console.error('Error saving custom thresholds to database (non-blocking):', dbError);
-    }
   } catch (error) {
     console.error('Error in custom thresholds API:', error);
     res.status(500).json({ success: false, error: 'Failed to save custom thresholds' });
@@ -248,30 +205,34 @@ app.get('/api/debug-thresholds', async (req, res) => {
 app.get('/api/debug-supabase', async (req, res) => {
   try {
     console.log('=== SUPABASE DEBUG ===');
-    console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
-    console.log('SUPABASE_ANON_KEY exists:', !!process.env.SUPABASE_ANON_KEY);
-    
-    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
-      return res.json({
-        error: 'Missing Supabase credentials',
-        url: process.env.SUPABASE_URL,
-        keyExists: !!process.env.SUPABASE_ANON_KEY
-      });
-    }
-    
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
-    
     const { data, error } = await supabase.from('emails').select('count').limit(1);
     
     res.json({
       success: !error,
       error: error?.message,
       data,
-      url: process.env.SUPABASE_URL
+      url: supabaseUrl
     });
   } catch (err) {
     res.json({ error: err.message });
+  }
+});
+
+// Test route to insert dummy email
+app.get('/api/test-email', async (req, res) => {
+  try {
+    const testEmail = {
+      subject: 'Test Low Stock Alert - ' + new Date().toISOString(),
+      from: 'Low Stock Alert <alerts@lowstockalert.com>',
+      to: 'vampirepes24@gmail.com',
+      html: '<h2>Test Email</h2><p>This is a test email to verify the inbox is working.</p>',
+      read: false
+    };
+    
+    const saved = await saveEmailToDB(testEmail);
+    res.json({ success: saved, message: 'Test email inserted' });
+  } catch (error) {
+    res.json({ error: error.message });
   }
 });
 
