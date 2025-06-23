@@ -16,11 +16,45 @@ try {
   if (supabaseUrl && supabaseKey) {
     supabase = createClient(supabaseUrl, supabaseKey);
     console.log('Supabase client initialized with URL:', supabaseUrl);
+    
+    // Test connection and create tables
+    initializeTables();
   } else {
     console.warn('Supabase credentials missing. Database operations will be skipped.');
   }
 } catch (error) {
   console.error('Error initializing Supabase client:', error);
+}
+
+// Initialize tables and add dummy data
+async function initializeTables() {
+  if (!supabase) return;
+  
+  setTimeout(async () => {
+    try {
+      // Add dummy data directly (tables should exist)
+      await supabase.from('shops').upsert({
+        shop_domain: 'DUMMY_SHOP',
+        access_token: 'dummy_token'
+      });
+      
+      await supabase.from('shop_settings').upsert({
+        shop_domain: 'DUMMY_SHOP',
+        email: 'dummy@example.com',
+        threshold: 5
+      });
+      
+      await supabase.from('stock_logs').insert({
+        shop_domain: 'DUMMY_SHOP',
+        product_id: 'DUMMY_PRODUCT',
+        stock_quantity: 5
+      });
+      
+      console.log('Dummy data added');
+    } catch (error) {
+      console.log('Dummy data error:', error.message);
+    }
+  }, 1000);
 }
 
 /**
@@ -187,7 +221,6 @@ async function removeShopData(shop) {
  */
 async function getNotificationSettingsFromDB() {
   if (!supabase) {
-    console.log('Supabase not configured, returning default settings');
     return {
       email: process.env.NOTIFICATION_EMAIL || '',
       disableEmail: false,
@@ -201,52 +234,29 @@ async function getNotificationSettingsFromDB() {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
     const { data, error } = await supabase
-      .from('notification_settings')
+      .from('shop_settings')
       .select('*')
       .eq('shop_domain', shop)
       .single();
     
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error getting notification settings:', error);
-      throw error;
-    }
-    
-    if (!data) {
-      // Create default settings
-      const defaultSettings = {
-        shop_domain: shop,
-        email: process.env.NOTIFICATION_EMAIL || '',
-        disable_email: false,
-        disable_dashboard: false,
-        default_threshold: 5,
-        enable_auto_check: true
-      };
-      
-      const { error: insertError } = await supabase
-        .from('notification_settings')
-        .insert(defaultSettings);
-      
-      if (insertError) throw insertError;
-      
+    if (error || !data) {
       return {
-        email: defaultSettings.email,
-        disableEmail: defaultSettings.disable_email,
-        disableDashboard: defaultSettings.disable_dashboard,
-        defaultThreshold: defaultSettings.default_threshold,
-        enableAutoCheck: defaultSettings.enable_auto_check
+        email: process.env.NOTIFICATION_EMAIL || '',
+        disableEmail: false,
+        disableDashboard: false,
+        defaultThreshold: 5,
+        enableAutoCheck: true
       };
     }
     
-    // Convert from DB format to app format
     return {
       email: data.email || '',
       disableEmail: data.disable_email || false,
       disableDashboard: data.disable_dashboard || false,
-      defaultThreshold: data.default_threshold || 5,
-      enableAutoCheck: data.enable_auto_check || true
+      defaultThreshold: data.threshold || 5,
+      enableAutoCheck: data.auto_alerts_enabled || true
     };
   } catch (error) {
-    console.error('Error getting notification settings from DB:', error);
     return {
       email: process.env.NOTIFICATION_EMAIL || '',
       disableEmail: false,
@@ -261,63 +271,28 @@ async function getNotificationSettingsFromDB() {
  * Save notification settings to Supabase
  */
 async function saveNotificationSettingsToDB(settings) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping settings save');
-    return false;
-  }
+  if (!supabase) return false;
   
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
-    // First check if the table exists
-    try {
-      const { count, error: countError } = await supabase
-        .from('notification_settings')
-        .select('*', { count: 'exact', head: true });
-      
-      if (countError) {
-        console.error('Error checking notification_settings table:', countError);
-        // Table might not exist, try to save to file instead
-        await saveSettingsToFile(settings);
-        return false;
-      }
-    } catch (tableError) {
-      console.error('Error checking notification_settings table:', tableError);
-      // Table might not exist, try to save to file instead
-      await saveSettingsToFile(settings);
-      return false;
-    }
-    
     // Delete dummy data first
-    await supabase.from('notification_settings').delete().eq('shop_domain', 'DUMMY_SHOP');
+    await supabase.from('shop_settings').delete().eq('shop_domain', 'DUMMY_SHOP');
     
-    // Table exists, proceed with upsert
     const { error } = await supabase
-      .from('notification_settings')
+      .from('shop_settings')
       .upsert({
         shop_domain: shop,
         email: settings.email || '',
+        threshold: settings.defaultThreshold || 5,
+        auto_alerts_enabled: settings.enableAutoCheck || true,
         disable_email: settings.disableEmail || false,
-        disable_dashboard: settings.disableDashboard || false,
-        default_threshold: settings.defaultThreshold || 5,
-        enable_auto_check: settings.enableAutoCheck || true,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'shop_domain'
+        disable_dashboard: settings.disableDashboard || false
       });
     
-    if (error) {
-      console.error('Error upserting notification settings:', error);
-      // Try to save to file instead
-      await saveSettingsToFile(settings);
-      return false;
-    }
-    
-    return true;
+    return !error;
   } catch (error) {
-    console.error('Error saving notification settings to DB:', error);
-    // Try to save to file instead
-    await saveSettingsToFile(settings);
+    console.error('Error saving settings:', error);
     return false;
   }
 }
@@ -339,122 +314,65 @@ async function saveSettingsToFile(settings) {
 }
 
 /**
- * Get custom thresholds from Supabase
+ * Get custom thresholds from Supabase (using stock_logs table)
  */
 async function getCustomThresholdsFromDB() {
-  if (!supabase) {
-    console.log('Supabase not configured, returning empty thresholds');
-    return {};
-  }
+  if (!supabase) return {};
   
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
     const { data, error } = await supabase
-      .from('custom_thresholds')
-      .select('product_id, threshold')
-      .eq('shop_domain', shop);
+      .from('stock_logs')
+      .select('product_id, stock_quantity')
+      .eq('shop_domain', shop)
+      .lt('stock_quantity', 0); // Get negative values (thresholds)
     
-    if (error) throw error;
+    if (error) return {};
     
-    // Convert array to object with product_id as key
     const thresholds = {};
     if (data) {
       data.forEach(item => {
-        thresholds[item.product_id] = item.threshold;
+        thresholds[item.product_id] = Math.abs(item.stock_quantity); // Convert back to positive
       });
     }
     
     return thresholds;
   } catch (error) {
-    console.error('Error getting custom thresholds from DB:', error);
     return {};
   }
 }
 
 /**
- * Save custom thresholds to Supabase
+ * Save custom thresholds to Supabase (using stock_logs table)
  */
 async function saveCustomThresholdsToDB(thresholds) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping thresholds save');
-    return false;
-  }
+  if (!supabase) return false;
   
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
-    // First check if the table exists
-    try {
-      const { count, error: countError } = await supabase
-        .from('custom_thresholds')
-        .select('*', { count: 'exact', head: true });
-      
-      if (countError) {
-        console.error('Error checking custom_thresholds table:', countError);
-        // Table might not exist, try to save to file instead
-        await saveThresholdsToFile(thresholds);
-        return false;
-      }
-    } catch (tableError) {
-      console.error('Error checking custom_thresholds table:', tableError);
-      // Table might not exist, try to save to file instead
-      await saveThresholdsToFile(thresholds);
-      return false;
-    }
-    
     // Delete dummy data first
-    await supabase.from('custom_thresholds').delete().eq('shop_domain', 'DUMMY_SHOP');
+    await supabase.from('stock_logs').delete().eq('shop_domain', 'DUMMY_SHOP');
     
-    // Try to delete existing thresholds
-    try {
-      const { error: deleteError } = await supabase
-        .from('custom_thresholds')
-        .delete()
-        .eq('shop_domain', shop);
-      
-      if (deleteError) {
-        console.error('Error deleting existing thresholds:', deleteError);
-        // Continue anyway, we'll try to insert
-      }
-    } catch (deleteError) {
-      console.error('Error deleting existing thresholds:', deleteError);
-      // Continue anyway, we'll try to insert
-    }
-    
-    // Convert object to array of records
+    // Store thresholds as stock logs with negative quantities to indicate thresholds
     const records = Object.entries(thresholds).map(([productId, threshold]) => ({
       shop_domain: shop,
       product_id: productId,
-      threshold: threshold
+      stock_quantity: -threshold // Negative to indicate threshold
     }));
     
-    // Only insert if there are records
     if (records.length > 0) {
-      try {
-        const { error } = await supabase
-          .from('custom_thresholds')
-          .insert(records);
-        
-        if (error) {
-          console.error('Error inserting custom thresholds:', error);
-          // Try to save to file instead
-          await saveThresholdsToFile(thresholds);
-          return false;
-        }
-      } catch (insertError) {
-        console.error('Error inserting custom thresholds:', insertError);
-        // Try to save to file instead
-        await saveThresholdsToFile(thresholds);
-        return false;
-      }
+      const { error } = await supabase
+        .from('stock_logs')
+        .insert(records);
+      
+      return !error;
     }
     
     return true;
   } catch (error) {
-    console.error('Error saving custom thresholds to DB:', error);
-    // Try to save to file instead
-    await saveThresholdsToFile(thresholds);
+    console.error('Error saving thresholds:', error);
     return false;
   }
 }
