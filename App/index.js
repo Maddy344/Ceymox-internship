@@ -278,46 +278,9 @@ app.get('/api/debug-supabase', async (req, res) => {
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
   try {
-    // Try file system first as it's more reliable in Vercel
-    const emailsFile = path.join(__dirname, 'data', 'emails.json');
-    
-    let emails = [];
-    try {
-      const emailsData = await fs.readFile(emailsFile, 'utf8');
-      emails = JSON.parse(emailsData);
-      console.log(`Retrieved ${emails.length} emails from file system`);
-      
-      if (emails.length > 0) {
-        return res.json(emails);
-      }
-    } catch (err) {
-      console.log('No emails file found or error reading it:', err.message);
-    }
-    
-    // If file system failed or returned empty, try database
-    try {
-      const { getEmailsFromDB } = require('./database');
-      const dbEmails = await getEmailsFromDB();
-      
-      if (dbEmails && dbEmails.length > 0) {
-        console.log(`Retrieved ${dbEmails.length} emails from database`);
-        
-        // Save to file system for future use
-        try {
-          await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-          await fs.writeFile(emailsFile, JSON.stringify(dbEmails, null, 2));
-        } catch (writeErr) {
-          console.error('Error saving emails to file:', writeErr);
-        }
-        
-        return res.json(dbEmails);
-      }
-    } catch (dbErr) {
-      console.error('Error getting emails from database:', dbErr);
-    }
-    
-    // If both methods failed, return empty array
-    res.json([]);
+    const dbEmails = await getEmailsFromDB();
+    console.log(`Retrieved ${dbEmails.length} emails from database`);
+    res.json(dbEmails);
   } catch (error) {
     console.error('Error getting emails:', error);
     res.status(500).json({ error: 'Failed to get emails' });
@@ -328,32 +291,10 @@ app.get('/api/emails', async (req, res) => {
 app.post('/api/emails/:id/read', async (req, res) => {
   try {
     const emailId = parseInt(req.params.id);
-    
-    // First try to mark as read in database
-    const { markEmailAsReadInDB } = require('./database');
     const dbSuccess = await markEmailAsReadInDB(emailId);
     
     if (dbSuccess) {
       console.log(`Marked email ${emailId} as read in database`);
-      return res.json({ success: true });
-    }
-    
-    // Fallback to file system if database update failed
-    const emailsFile = path.join(__dirname, 'data', 'emails.json');
-    
-    let emails = [];
-    try {
-      const emailsData = await fs.readFile(emailsFile, 'utf8');
-      emails = JSON.parse(emailsData);
-    } catch (err) {
-      return res.status(404).json({ error: 'Emails not found' });
-    }
-    
-    const email = emails.find(e => e.id === emailId);
-    if (email) {
-      email.read = true;
-      await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
-      console.log(`Marked email ${emailId} as read in file system`);
       res.json({ success: true });
     } else {
       res.status(404).json({ error: 'Email not found' });
@@ -368,33 +309,14 @@ app.post('/api/emails/:id/read', async (req, res) => {
 app.post('/api/emails/delete', express.json(), async (req, res) => {
   try {
     const emailIds = req.body.emailIds;
-    
-    // First try to delete from database
-    const { deleteEmailsFromDB } = require('./database');
     const dbSuccess = await deleteEmailsFromDB(emailIds);
     
     if (dbSuccess) {
       console.log(`Deleted ${emailIds.length} emails from database`);
-      return res.json({ success: true, deletedCount: emailIds.length });
+      res.json({ success: true, deletedCount: emailIds.length });
+    } else {
+      res.status(500).json({ error: 'Failed to delete emails' });
     }
-    
-    // Fallback to file system if database deletion failed
-    const emailsFile = path.join(__dirname, 'data', 'emails.json');
-    
-    let emails = [];
-    try {
-      const emailsData = await fs.readFile(emailsFile, 'utf8');
-      emails = JSON.parse(emailsData);
-    } catch (err) {
-      return res.status(404).json({ error: 'Emails not found' });
-    }
-    
-    // Filter out the emails to be deleted
-    const remainingEmails = emails.filter(email => !emailIds.includes(email.id));
-    
-    await fs.writeFile(emailsFile, JSON.stringify(remainingEmails, null, 2));
-    console.log(`Deleted ${emailIds.length} emails from file system`);
-    res.json({ success: true, deletedCount: emailIds.length });
   } catch (error) {
     console.error('Error deleting emails:', error);
     res.status(500).json({ error: 'Failed to delete emails' });

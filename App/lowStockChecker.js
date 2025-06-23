@@ -1,11 +1,5 @@
 const fetch = require('node-fetch');
-const fs = require('fs').promises;
-const path = require('path');
-const { logLowStockAlert } = require('./database');
-
-// File to store low stock history
-const LOW_STOCK_HISTORY_FILE = path.join(__dirname, 'data', 'low-stock-history.json');
-const CUSTOM_THRESHOLDS_FILE = path.join(__dirname, 'data', 'custom-thresholds.json');
+const { getCustomThresholdsFromDB, saveCustomThresholdsToDB, saveLowStockHistoryToDB } = require('./database');
 
 /**
  * Get custom thresholds for products
@@ -13,43 +7,11 @@ const CUSTOM_THRESHOLDS_FILE = path.join(__dirname, 'data', 'custom-thresholds.j
  */
 async function getCustomThresholds() {
   try {
-    // Try file system first as it's more reliable in Vercel
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    
-    try {
-      const data = await fs.readFile(CUSTOM_THRESHOLDS_FILE, 'utf8');
-      const fileThresholds = JSON.parse(data);
-      console.log('Retrieved custom thresholds from file:', fileThresholds);
-      return fileThresholds;
-    } catch (fileError) {
-      console.log('No custom thresholds file found or error reading it:', fileError.message);
-    }
-    
-    // If file system failed, try database
-    try {
-      const { getCustomThresholdsFromDB } = require('./database');
-      const dbThresholds = await getCustomThresholdsFromDB();
-      
-      if (dbThresholds && Object.keys(dbThresholds).length > 0) {
-        console.log('Retrieved custom thresholds from database:', dbThresholds);
-        
-        // Save to local file for future use
-        try {
-          await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(dbThresholds, null, 2));
-        } catch (writeError) {
-          console.error('Error saving custom thresholds to file:', writeError);
-        }
-        
-        return dbThresholds;
-      }
-    } catch (dbError) {
-      console.error('Error getting custom thresholds from database:', dbError);
-    }
-    
-    // If both methods failed, return empty object
-    return {};
-  } catch (err) {
-    console.log('Error in getCustomThresholds:', err);
+    const dbThresholds = await getCustomThresholdsFromDB();
+    console.log('Retrieved custom thresholds from database:', dbThresholds);
+    return dbThresholds || {};
+  } catch (error) {
+    console.error('Error getting custom thresholds:', error);
     return {};
   }
 }
@@ -61,21 +23,9 @@ async function getCustomThresholds() {
  */
 async function saveCustomThresholds(thresholds) {
   try {
-    // First save to database
-    const { saveCustomThresholdsToDB } = require('./database');
     const dbSuccess = await saveCustomThresholdsToDB(thresholds);
     console.log('Saved custom thresholds to database:', dbSuccess);
-    
-    // Also save to local file as backup
-    try {
-      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-      await fs.writeFile(CUSTOM_THRESHOLDS_FILE, JSON.stringify(thresholds, null, 2));
-    } catch (fileError) {
-      console.error('Error saving custom thresholds to file:', fileError);
-      // Continue even if file save fails
-    }
-    
-    return true;
+    return dbSuccess;
   } catch (error) {
     console.error('Error saving custom thresholds:', error);
     return false;
@@ -159,19 +109,6 @@ function filterLowStockItems(products, defaultThreshold, customThresholds) {
  */
 async function saveLowStockHistory(lowStockItems, threshold) {
   try {
-    // Create data directory if it doesn't exist
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    
-    // Read existing history or create new
-    let history = [];
-    try {
-      const historyData = await fs.readFile(LOW_STOCK_HISTORY_FILE, 'utf8');
-      history = JSON.parse(historyData);
-    } catch (err) {
-      // File doesn't exist yet, that's ok
-    }
-    
-    // Add new entry
     const entry = {
       date: new Date().toISOString(),
       threshold,
@@ -189,14 +126,8 @@ async function saveLowStockHistory(lowStockItems, threshold) {
       }))
     };
     
-    // Add to history and limit to last 100 entries
-    history.unshift(entry);
-    if (history.length > 100) {
-      history = history.slice(0, 100);
-    }
-    
-    // Save history
-    await fs.writeFile(LOW_STOCK_HISTORY_FILE, JSON.stringify(history, null, 2));
+    await saveLowStockHistoryToDB(entry);
+    console.log('Low stock history saved to database');
   } catch (error) {
     console.error('Error saving low stock history:', error);
   }
@@ -289,14 +220,8 @@ function getMockLowStockData() {
  */
 async function getLowStockHistory(period = 'daily', selectedDate = null) {
   try {
-    // Read history file
-    let history = [];
-    try {
-      const historyData = await fs.readFile(LOW_STOCK_HISTORY_FILE, 'utf8');
-      history = JSON.parse(historyData);
-    } catch (err) {
-      return [];
-    }
+    const { getLowStockHistoryFromDB } = require('./database');
+    const history = await getLowStockHistoryFromDB();
     
     if (!selectedDate) {
       return history;
@@ -304,16 +229,13 @@ async function getLowStockHistory(period = 'daily', selectedDate = null) {
     
     const targetDate = new Date(selectedDate);
     
-    // Filter based on period and selected date
     return history.filter(entry => {
       const entryDate = new Date(entry.date);
       
       switch (period) {
         case 'daily':
-          // Same day
           return entryDate.toDateString() === targetDate.toDateString();
         case 'weekly':
-          // Week based on month days (1-7, 8-14, 15-21, 22-28, etc.)
           const targetDay = targetDate.getDate();
           const entryDay = entryDate.getDate();
           const targetMonth = targetDate.getMonth();
@@ -321,19 +243,16 @@ async function getLowStockHistory(period = 'daily', selectedDate = null) {
           const targetYear = targetDate.getFullYear();
           const entryYear = entryDate.getFullYear();
           
-          // Must be same month and year
           if (targetMonth !== entryMonth || targetYear !== entryYear) {
             return false;
           }
           
-          // Calculate which week the target date belongs to
           const weekNumber = Math.ceil(targetDay / 7);
           const weekStart = (weekNumber - 1) * 7 + 1;
           const weekEnd = Math.min(weekNumber * 7, new Date(targetYear, targetMonth + 1, 0).getDate());
           
           return entryDay >= weekStart && entryDay <= weekEnd;
         case 'monthly':
-          // Same month and year
           return entryDate.getMonth() === targetDate.getMonth() && 
                  entryDate.getFullYear() === targetDate.getFullYear();
         default:

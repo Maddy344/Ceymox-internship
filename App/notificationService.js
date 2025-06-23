@@ -1,9 +1,4 @@
 const nodemailer = require('nodemailer');
-const fs = require('fs').promises;
-const path = require('path');
-
-// File to store notification settings
-const SETTINGS_FILE = path.join(__dirname, 'data', 'notification-settings.json');
 
 /**
  * Get notification settings
