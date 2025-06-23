@@ -2,13 +2,9 @@
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 
-// Hardcoded Supabase credentials as fallback
-const HARDCODED_SUPABASE_URL = 'https://pqifekkoglrgjiiprrlr.supabase.co';
-const HARDCODED_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBxaWZla2tvZ2xyZ2ppaXBycmxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0MDI3NzcsImV4cCI6MjA2NTk3ODc3N30.uCTd36g0DaINiEq-7do_OO0tdhGvVnr_J7yArnN7Alk';
-
-// Get Supabase credentials from environment or use hardcoded values
-const supabaseUrl = process.env.SUPABASE_URL || HARDCODED_SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY || HARDCODED_SUPABASE_KEY;
+// Get Supabase credentials from environment
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY;
 
 async function initializeSupabase() {
   console.log('Initializing Supabase tables...');
