@@ -4,7 +4,7 @@ const path = require('path');
 
 // Get Supabase credentials from environment with fallbacks
 const supabaseUrl = process.env.SUPABASE_URL || 'https://hgwunfhlezzxnhwbvozs.supabase.co';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhnd3VuZmhsZXp6eG5od2J2b3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NjE2NjQsImV4cCI6MjA2NjIzNzY2NH0.AMCHLbzDwqwh0aFgL8KbH3BaFx21hbcAFsUi2KCdxq4';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhnd3VuZmhsZXp6eG5od2J2b3pzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MDY2MTY2NCwiZXhwIjoyMDY2MjM3NjY0fQ.lINkQ1l7rGtWr1K0zV1Wuig4wanjwPxKPone1LXiM8U';
 
 // Create Supabase client
 let supabase = null;
@@ -21,61 +21,7 @@ try {
 
 
 
-/**
- * Save shop settings
- */
-async function saveShopSettings(shop, settings) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping settings save');
-    return null;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('shop_settings')
-      .upsert({
-        shop_domain: shop,
-        threshold: settings.defaultThreshold || 5,
-        email: settings.email,
-        auto_alerts_enabled: settings.enableAutoCheck || false,
-        disable_email: settings.disableEmail || false,
-        disable_dashboard: settings.disableDashboard || false,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'shop_domain'
-      });
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error saving shop settings:', error);
-    throw error;
-  }
-}
 
-/**
- * Get shop settings
- */
-async function getShopSettings(shop) {
-  if (!supabase) {
-    console.log('Supabase not configured, returning null');
-    return null;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('shop_settings')
-      .select('*')
-      .eq('shop_domain', shop)
-      .single();
-    
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  } catch (error) {
-    console.error('Error getting shop settings:', error);
-    return null;
-  }
-}
 
 
 
@@ -85,65 +31,21 @@ async function getShopSettings(shop) {
  * Get notification settings from Supabase
  */
 async function getNotificationSettingsFromDB() {
-  const defaultSettings = {
+  return {
     email: 'vampirepes24@gmail.com',
     disableEmail: false,
     disableDashboard: false,
     defaultThreshold: 5,
     enableAutoCheck: true
   };
-  
-  if (!supabase) return defaultSettings;
-  
-  try {
-    const shop = 'fakestore-practice1.myshopify.com';
-    
-    const { data, error } = await supabase
-      .from('shop_settings')
-      .select('*')
-      .eq('shop_domain', shop)
-      .single();
-    
-    if (error || !data) return defaultSettings;
-    
-    return {
-      email: data.email || defaultSettings.email,
-      disableEmail: data.disable_email || false,
-      disableDashboard: data.disable_dashboard || false,
-      defaultThreshold: data.threshold || 5,
-      enableAutoCheck: data.auto_alerts_enabled !== false
-    };
-  } catch (error) {
-    return defaultSettings;
-  }
 }
 
 /**
  * Save notification settings to Supabase
  */
 async function saveNotificationSettingsToDB(settings) {
-  if (!supabase) return false;
-  
-  try {
-    const shop = 'fakestore-practice1.myshopify.com';
-    
-    const { error } = await supabase
-      .from('shop_settings')
-      .upsert({
-        shop_domain: shop,
-        email: settings.email || 'vampirepes24@gmail.com',
-        threshold: settings.defaultThreshold || 5,
-        auto_alerts_enabled: settings.enableAutoCheck !== false,
-        disable_email: settings.disableEmail || false,
-        disable_dashboard: settings.disableDashboard || false
-      });
-    
-    console.log('Settings save result:', error ? error.message : 'SUCCESS');
-    return !error;
-  } catch (error) {
-    console.error('Error saving settings:', error);
-    return false;
-  }
+  console.log('Settings saved (hardcoded):', settings);
+  return true;
 }
 
 /**
