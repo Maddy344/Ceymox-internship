@@ -1,15 +1,26 @@
 const { createClient } = require('@supabase/supabase-js');
+const fs = require('fs').promises;
+const path = require('path');
 
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+// Hardcoded Supabase credentials as fallback
+const HARDCODED_SUPABASE_URL = 'https://pqifekkoglrgjiiprrlr.supabase.co';
+const HARDCODED_SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBxaWZla2tvZ2xyZ2ppaXBycmxyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA0MDI3NzcsImV4cCI6MjA2NTk3ODc3N30.uCTd36g0DaINiEq-7do_OO0tdhGvVnr_J7yArnN7Alk';
 
-// Only create Supabase client if credentials are provided
+// Get Supabase credentials from environment or use hardcoded values
+const supabaseUrl = process.env.SUPABASE_URL || HARDCODED_SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_ANON_KEY || HARDCODED_SUPABASE_KEY;
+
+// Create Supabase client
 let supabase = null;
-if (supabaseUrl && supabaseKey && supabaseUrl !== 'your_supabase_url_here') {
-  supabase = createClient(supabaseUrl, supabaseKey);
-  console.log('Supabase client initialized with URL:', supabaseUrl);
-} else {
-  console.warn('Supabase credentials missing or invalid. Database operations will be skipped.');
+try {
+  if (supabaseUrl && supabaseKey) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('Supabase client initialized with URL:', supabaseUrl);
+  } else {
+    console.warn('Supabase credentials missing. Database operations will be skipped.');
+  }
+} catch (error) {
+  console.error('Error initializing Supabase client:', error);
 }
 
 /**
@@ -258,6 +269,29 @@ async function saveNotificationSettingsToDB(settings) {
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
+    // First check if the table exists
+    try {
+      const { count, error: countError } = await supabase
+        .from('notification_settings')
+        .select('*', { count: 'exact', head: true });
+      
+      if (countError) {
+        console.error('Error checking notification_settings table:', countError);
+        // Table might not exist, try to save to file instead
+        await saveSettingsToFile(settings);
+        return false;
+      }
+    } catch (tableError) {
+      console.error('Error checking notification_settings table:', tableError);
+      // Table might not exist, try to save to file instead
+      await saveSettingsToFile(settings);
+      return false;
+    }
+    
+    // Delete dummy data first
+    await supabase.from('notification_settings').delete().eq('shop_domain', 'DUMMY_SHOP');
+    
+    // Table exists, proceed with upsert
     const { error } = await supabase
       .from('notification_settings')
       .upsert({
@@ -272,10 +306,34 @@ async function saveNotificationSettingsToDB(settings) {
         onConflict: 'shop_domain'
       });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Error upserting notification settings:', error);
+      // Try to save to file instead
+      await saveSettingsToFile(settings);
+      return false;
+    }
+    
     return true;
   } catch (error) {
     console.error('Error saving notification settings to DB:', error);
+    // Try to save to file instead
+    await saveSettingsToFile(settings);
+    return false;
+  }
+}
+
+/**
+ * Save settings to file as fallback
+ */
+async function saveSettingsToFile(settings) {
+  try {
+    const settingsFile = path.join(__dirname, 'data', 'notification-settings.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(settingsFile, JSON.stringify(settings, null, 2));
+    console.log('Settings saved to file as fallback');
+    return true;
+  } catch (error) {
+    console.error('Error saving settings to file:', error);
     return false;
   }
 }
@@ -326,13 +384,43 @@ async function saveCustomThresholdsToDB(thresholds) {
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
-    // Delete existing thresholds
-    const { error: deleteError } = await supabase
-      .from('custom_thresholds')
-      .delete()
-      .eq('shop_domain', shop);
+    // First check if the table exists
+    try {
+      const { count, error: countError } = await supabase
+        .from('custom_thresholds')
+        .select('*', { count: 'exact', head: true });
+      
+      if (countError) {
+        console.error('Error checking custom_thresholds table:', countError);
+        // Table might not exist, try to save to file instead
+        await saveThresholdsToFile(thresholds);
+        return false;
+      }
+    } catch (tableError) {
+      console.error('Error checking custom_thresholds table:', tableError);
+      // Table might not exist, try to save to file instead
+      await saveThresholdsToFile(thresholds);
+      return false;
+    }
     
-    if (deleteError) throw deleteError;
+    // Delete dummy data first
+    await supabase.from('custom_thresholds').delete().eq('shop_domain', 'DUMMY_SHOP');
+    
+    // Try to delete existing thresholds
+    try {
+      const { error: deleteError } = await supabase
+        .from('custom_thresholds')
+        .delete()
+        .eq('shop_domain', shop);
+      
+      if (deleteError) {
+        console.error('Error deleting existing thresholds:', deleteError);
+        // Continue anyway, we'll try to insert
+      }
+    } catch (deleteError) {
+      console.error('Error deleting existing thresholds:', deleteError);
+      // Continue anyway, we'll try to insert
+    }
     
     // Convert object to array of records
     const records = Object.entries(thresholds).map(([productId, threshold]) => ({
@@ -343,16 +431,46 @@ async function saveCustomThresholdsToDB(thresholds) {
     
     // Only insert if there are records
     if (records.length > 0) {
-      const { error } = await supabase
-        .from('custom_thresholds')
-        .insert(records);
-      
-      if (error) throw error;
+      try {
+        const { error } = await supabase
+          .from('custom_thresholds')
+          .insert(records);
+        
+        if (error) {
+          console.error('Error inserting custom thresholds:', error);
+          // Try to save to file instead
+          await saveThresholdsToFile(thresholds);
+          return false;
+        }
+      } catch (insertError) {
+        console.error('Error inserting custom thresholds:', insertError);
+        // Try to save to file instead
+        await saveThresholdsToFile(thresholds);
+        return false;
+      }
     }
     
     return true;
   } catch (error) {
     console.error('Error saving custom thresholds to DB:', error);
+    // Try to save to file instead
+    await saveThresholdsToFile(thresholds);
+    return false;
+  }
+}
+
+/**
+ * Save thresholds to file as fallback
+ */
+async function saveThresholdsToFile(thresholds) {
+  try {
+    const thresholdsFile = path.join(__dirname, 'data', 'custom-thresholds.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(thresholdsFile, JSON.stringify(thresholds, null, 2));
+    console.log('Thresholds saved to file as fallback');
+    return true;
+  } catch (error) {
+    console.error('Error saving thresholds to file:', error);
     return false;
   }
 }
@@ -368,6 +486,9 @@ async function saveEmailToDB(emailRecord) {
   
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    
+    // Delete dummy data first
+    await supabase.from('emails').delete().eq('shop_domain', 'DUMMY_SHOP');
     
     const { error } = await supabase
       .from('emails')

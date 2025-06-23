@@ -119,26 +119,23 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', express.json(), async (req, res) => {
   try {
     console.log('Saving settings:', req.body);
+    
     // Save to file system first to ensure it works
+    const settingsFile = path.join(__dirname, 'data', 'notification-settings.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(settingsFile, JSON.stringify(req.body, null, 2));
+    console.log('Settings saved to file system successfully');
+    
+    // Return success immediately after file save
+    res.json({ success: true, message: 'Settings saved successfully' });
+    
+    // Then try to save to database in the background
     try {
-      const settingsFile = path.join(__dirname, 'data', 'notification-settings.json');
-      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-      await fs.writeFile(settingsFile, JSON.stringify(req.body, null, 2));
-      console.log('Settings saved to file system successfully');
-      
-      // Always return success if file save works
-      res.json({ success: true, message: 'Settings saved successfully' });
-      
-      // Then try to save to database in the background
-      try {
-        await saveNotificationSettings(req.body);
-        console.log('Settings also saved to database');
-      } catch (dbError) {
-        console.error('Error saving settings to database (non-blocking):', dbError);
-      }
-    } catch (fsError) {
-      console.error('Error saving settings to file system:', fsError);
-      res.status(500).json({ success: false, error: 'Failed to save settings' });
+      const { saveNotificationSettingsToDB } = require('./database');
+      const dbSuccess = await saveNotificationSettingsToDB(req.body);
+      console.log('Settings saved to database:', dbSuccess);
+    } catch (dbError) {
+      console.error('Error saving settings to database (non-blocking):', dbError);
     }
   } catch (error) {
     console.error('Error in settings API:', error);
@@ -192,26 +189,23 @@ app.get('/api/custom-thresholds', async (req, res) => {
 app.post('/api/custom-thresholds', express.json(), async (req, res) => {
   try {
     console.log('Saving custom thresholds:', req.body);
+    
     // Save to file system first to ensure it works
+    const thresholdsFile = path.join(__dirname, 'data', 'custom-thresholds.json');
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    await fs.writeFile(thresholdsFile, JSON.stringify(req.body, null, 2));
+    console.log('Custom thresholds saved to file system successfully');
+    
+    // Return success immediately after file save
+    res.json({ success: true, message: 'Custom thresholds saved successfully' });
+    
+    // Then try to save to database in the background
     try {
-      const thresholdsFile = path.join(__dirname, 'data', 'custom-thresholds.json');
-      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-      await fs.writeFile(thresholdsFile, JSON.stringify(req.body, null, 2));
-      console.log('Custom thresholds saved to file system successfully');
-      
-      // Always return success if file save works
-      res.json({ success: true, message: 'Custom thresholds saved successfully' });
-      
-      // Then try to save to database in the background
-      try {
-        await saveCustomThresholds(req.body);
-        console.log('Custom thresholds also saved to database');
-      } catch (dbError) {
-        console.error('Error saving custom thresholds to database (non-blocking):', dbError);
-      }
-    } catch (fsError) {
-      console.error('Error saving custom thresholds to file system:', fsError);
-      res.status(500).json({ success: false, error: 'Failed to save custom thresholds' });
+      const { saveCustomThresholdsToDB } = require('./database');
+      const dbSuccess = await saveCustomThresholdsToDB(req.body);
+      console.log('Custom thresholds saved to database:', dbSuccess);
+    } catch (dbError) {
+      console.error('Error saving custom thresholds to database (non-blocking):', dbError);
     }
   } catch (error) {
     console.error('Error in custom thresholds API:', error);

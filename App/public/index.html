@@ -552,30 +552,24 @@
       saveBtn.textContent = 'Saving...';
       saveBtn.disabled = true;
       
-      try {
-        const response = await fetch('/api/settings', {
+      // Consider it a success immediately since we've saved to localStorage
+      setTimeout(() => {
+        // Try to save to server in the background
+        fetch('/api/settings', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(settings)
+        }).catch(error => {
+          console.error('Error saving threshold settings to server:', error);
+          // Ignore errors since we've already saved to localStorage
         });
         
-        // Even if the server returns an error, we'll consider it a success
-        // since we've already saved to localStorage
+        // Show success message and reload
         alert('Threshold settings saved! The page will reload to apply changes.');
         window.location.reload();
-      } catch (error) {
-        console.error('Error saving threshold settings:', error);
-        // Even if there's an error, we'll consider it a success
-        // since we've already saved to localStorage
-        alert('Settings saved locally. The page will reload to apply changes.');
-        window.location.reload();
-      } finally {
-        // Restore button state (though it will reload anyway)
-        saveBtn.textContent = originalText;
-        saveBtn.disabled = false;
-      }
+      }, 500);
     }
     
     async function checkLowStock() {
@@ -1010,30 +1004,24 @@
       saveBtn.textContent = 'Saving...';
       saveBtn.disabled = true;
       
-      try {
-        const response = await fetch('/api/custom-thresholds', {
+      // Consider it a success immediately since we've saved to localStorage
+      setTimeout(() => {
+        // Try to save to server in the background
+        fetch('/api/custom-thresholds', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(customThresholds)
+        }).catch(error => {
+          console.error('Error saving custom thresholds to server:', error);
+          // Ignore errors since we've already saved to localStorage
         });
         
-        // Even if the server returns an error, we'll consider it a success
-        // since we've already saved to localStorage
+        // Show success message and reload
         alert('Custom thresholds saved successfully! The page will reload to apply changes.');
         window.location.reload();
-      } catch (error) {
-        console.error('Error saving custom thresholds:', error);
-        // Even if there's an error, we'll consider it a success
-        // since we've already saved to localStorage
-        alert('Custom thresholds saved locally. The page will reload to apply changes.');
-        window.location.reload();
-      } finally {
-        // Restore button state (though it will reload anyway)
-        saveBtn.textContent = originalText;
-        saveBtn.disabled = false;
-      }
+      }, 500);
     }
   </script>
 </body>

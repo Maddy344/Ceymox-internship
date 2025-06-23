@@ -4,9 +4,12 @@
   "description": "Shopify app for low stock alerts",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node add-dummy-data.js && node index.js",
     "dev": "nodemon index.js",
-    "import-stock": "node import_stock_logs.js"
+    "import-stock": "node import_stock_logs.js",
+    "init-db": "node init-supabase.js",
+    "test-db": "node test-supabase.js",
+    "add-dummy": "node add-dummy-data.js"
   },
   "dependencies": {
     "express": "^4.18.2",
