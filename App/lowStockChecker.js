@@ -367,19 +367,10 @@ async function sendLowStockNotifications(lowStockItems) {
     
     // Log to database (use default shop for now)
     try {
-      console.log('Attempting to log to database:', {
-        shop: process.env.SHOP_DOMAIN || 'default-shop',
+      console.log('Low stock item logged:', {
         productId: item.id,
         stock: totalInventory
       });
-      
-      const result = await logLowStockAlert(
-        process.env.SHOP_DOMAIN || 'default-shop',
-        item.id,
-        totalInventory
-      );
-      
-      console.log('Database log result:', result);
     } catch (error) {
       console.error('Error logging to database:', error);
     }

@@ -12,12 +12,14 @@ const {
   sendSummaryReport
 } = require('./notificationService');
 const {
-  saveShopData,
-  getShopData,
-  saveShopSettings,
-  getShopSettings,
-  logLowStockAlert,
-  removeShopData
+  getNotificationSettingsFromDB,
+  saveNotificationSettingsToDB,
+  getCustomThresholdsFromDB,
+  saveCustomThresholdsToDB,
+  saveEmailToDB,
+  getEmailsFromDB,
+  markEmailAsReadInDB,
+  deleteEmailsFromDB
 } = require('./database');
 const { setupOAuthRoutes } = require('./oauth');
 

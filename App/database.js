@@ -2,108 +2,24 @@ const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs').promises;
 const path = require('path');
 
-// Get Supabase credentials from environment
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
+// Get Supabase credentials from environment with fallbacks
+const supabaseUrl = process.env.SUPABASE_URL || 'https://hgwunfhlezzxnhwbvozs.supabase.co';
+const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imhnd3VuZmhsZXp6eG5od2J2b3pzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTA2NjE2NjQsImV4cCI6MjA2NjIzNzY2NH0.AMCHLbzDwqwh0aFgL8KbH3BaFx21hbcAFsUi2KCdxq4';
 
 // Create Supabase client
 let supabase = null;
 try {
-  if (supabaseUrl && supabaseKey) {
-    supabase = createClient(supabaseUrl, supabaseKey);
-    console.log('Supabase client initialized with URL:', supabaseUrl);
-    
-    // Test connection and create tables
-    initializeTables();
-  } else {
-    console.warn('Supabase credentials missing. Database operations will be skipped.');
-  }
+  supabase = createClient(supabaseUrl, supabaseKey);
+  console.log('Supabase client initialized with URL:', supabaseUrl);
 } catch (error) {
   console.error('Error initializing Supabase client:', error);
 }
 
-// Initialize tables and add dummy data
-async function initializeTables() {
-  if (!supabase) return;
-  
-  setTimeout(async () => {
-    try {
-      // Add dummy data directly (tables should exist)
-      await supabase.from('shops').upsert({
-        shop_domain: 'DUMMY_SHOP',
-        access_token: 'dummy_token'
-      });
-      
-      await supabase.from('shop_settings').upsert({
-        shop_domain: 'DUMMY_SHOP',
-        email: 'dummy@example.com',
-        threshold: 5
-      });
-      
-      await supabase.from('stock_logs').insert({
-        shop_domain: 'DUMMY_SHOP',
-        product_id: 'DUMMY_PRODUCT',
-        stock_quantity: 5
-      });
-      
-      console.log('Dummy data added');
-    } catch (error) {
-      console.log('Dummy data error:', error.message);
-    }
-  }, 1000);
-}
 
-/**
- * Store shop information and access token
- */
-async function saveShopData(shop, accessToken) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping shop data save');
-    return null;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('shops')
-      .upsert({
-        shop_domain: shop,
-        access_token: accessToken,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'shop_domain'
-      });
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error saving shop data:', error);
-    throw error;
-  }
-}
 
-/**
- * Get shop data by domain
- */
-async function getShopData(shop) {
-  if (!supabase) {
-    console.log('Supabase not configured, returning null');
-    return null;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('shops')
-      .select('*')
-      .eq('shop_domain', shop)
-      .single();
-    
-    if (error && error.code !== 'PGRST116') throw error;
-    return data;
-  } catch (error) {
-    console.error('Error getting shop data:', error);
-    return null;
-  }
-}
+
+
+
 
 /**
  * Save shop settings
@@ -161,73 +77,26 @@ async function getShopSettings(shop) {
   }
 }
 
-/**
- * Log low stock alert
- */
-async function logLowStockAlert(shop, productId, stockQuantity) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping log');
-    return null;
-  }
-  
-  try {
-    const { data, error } = await supabase
-      .from('stock_logs')
-      .insert({
-        shop_domain: shop,
-        product_id: productId,
-        stock_quantity: stockQuantity,
-        alert_time: new Date().toISOString()
-      });
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error logging stock alert:', error);
-  }
-}
 
-/**
- * Remove shop data (for uninstall)
- */
-async function removeShopData(shop) {
-  if (!supabase) {
-    console.log('Supabase not configured, skipping data removal');
-    return;
-  }
-  
-  try {
-    // Remove from all tables
-    await supabase.from('shops').delete().eq('shop_domain', shop);
-    await supabase.from('shop_settings').delete().eq('shop_domain', shop);
-    await supabase.from('stock_logs').delete().eq('shop_domain', shop);
-    await supabase.from('notification_settings').delete().eq('shop_domain', shop);
-    await supabase.from('custom_thresholds').delete().eq('shop_domain', shop);
-    await supabase.from('emails').delete().eq('shop_domain', shop);
-    await supabase.from('low_stock_history').delete().eq('shop_domain', shop);
-    
-    console.log(`Removed all data for shop: ${shop}`);
-  } catch (error) {
-    console.error('Error removing shop data:', error);
-  }
-}
+
+
 
 /**
  * Get notification settings from Supabase
  */
 async function getNotificationSettingsFromDB() {
-  if (!supabase) {
-    return {
-      email: process.env.NOTIFICATION_EMAIL || '',
-      disableEmail: false,
-      disableDashboard: false,
-      defaultThreshold: 5,
-      enableAutoCheck: true
-    };
-  }
+  const defaultSettings = {
+    email: 'vampirepes24@gmail.com',
+    disableEmail: false,
+    disableDashboard: false,
+    defaultThreshold: 5,
+    enableAutoCheck: true
+  };
+  
+  if (!supabase) return defaultSettings;
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = 'fakestore-practice1.myshopify.com';
     
     const { data, error } = await supabase
       .from('shop_settings')
@@ -235,31 +104,17 @@ async function getNotificationSettingsFromDB() {
       .eq('shop_domain', shop)
       .single();
     
-    if (error || !data) {
-      return {
-        email: process.env.NOTIFICATION_EMAIL || '',
-        disableEmail: false,
-        disableDashboard: false,
-        defaultThreshold: 5,
-        enableAutoCheck: true
-      };
-    }
+    if (error || !data) return defaultSettings;
     
     return {
-      email: data.email || '',
+      email: data.email || defaultSettings.email,
       disableEmail: data.disable_email || false,
       disableDashboard: data.disable_dashboard || false,
       defaultThreshold: data.threshold || 5,
-      enableAutoCheck: data.auto_alerts_enabled || true
+      enableAutoCheck: data.auto_alerts_enabled !== false
     };
   } catch (error) {
-    return {
-      email: process.env.NOTIFICATION_EMAIL || '',
-      disableEmail: false,
-      disableDashboard: false,
-      defaultThreshold: 5,
-      enableAutoCheck: true
-    };
+    return defaultSettings;
   }
 }
 
@@ -270,24 +125,15 @@ async function saveNotificationSettingsToDB(settings) {
   if (!supabase) return false;
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
-    
-    // First ensure shop exists
-    await supabase.from('shops').upsert({
-      shop_domain: shop,
-      access_token: 'default_token'
-    });
-    
-    // Delete dummy data
-    await supabase.from('shop_settings').delete().eq('shop_domain', 'DUMMY_SHOP');
+    const shop = 'fakestore-practice1.myshopify.com';
     
     const { error } = await supabase
       .from('shop_settings')
       .upsert({
         shop_domain: shop,
-        email: settings.email || '',
+        email: settings.email || 'vampirepes24@gmail.com',
         threshold: settings.defaultThreshold || 5,
-        auto_alerts_enabled: settings.enableAutoCheck || true,
+        auto_alerts_enabled: settings.enableAutoCheck !== false,
         disable_email: settings.disableEmail || false,
         disable_dashboard: settings.disableDashboard || false
       });
@@ -323,20 +169,17 @@ async function getCustomThresholdsFromDB() {
   if (!supabase) return {};
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
-    
     const { data, error } = await supabase
-      .from('stock_logs')
-      .select('product_id, stock_quantity')
-      .eq('shop_domain', shop)
-      .lt('stock_quantity', 0); // Get negative values (thresholds)
+      .from('custom_thresholds')
+      .select('product_id, threshold')
+      .eq('shop_domain', 'fakestore-practice1.myshopify.com');
     
     if (error) return {};
     
     const thresholds = {};
     if (data) {
       data.forEach(item => {
-        thresholds[item.product_id] = Math.abs(item.stock_quantity); // Convert back to positive
+        thresholds[item.product_id] = item.threshold;
       });
     }
     
@@ -353,27 +196,20 @@ async function saveCustomThresholdsToDB(thresholds) {
   if (!supabase) return false;
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = 'fakestore-practice1.myshopify.com';
     
-    // First ensure shop exists
-    await supabase.from('shops').upsert({
-      shop_domain: shop,
-      access_token: 'default_token'
-    });
-    
-    // Delete dummy data and existing thresholds
-    await supabase.from('stock_logs').delete().eq('shop_domain', 'DUMMY_SHOP');
-    await supabase.from('stock_logs').delete().eq('shop_domain', shop).lt('stock_quantity', 0);
+    // Delete existing thresholds
+    await supabase.from('custom_thresholds').delete().eq('shop_domain', shop);
     
     const records = Object.entries(thresholds).map(([productId, threshold]) => ({
       shop_domain: shop,
       product_id: productId,
-      stock_quantity: -threshold
+      threshold: threshold
     }));
     
     if (records.length > 0) {
       const { error } = await supabase
-        .from('stock_logs')
+        .from('custom_thresholds')
         .insert(records);
       
       console.log('Thresholds save result:', error ? error.message : 'SUCCESS');
@@ -614,12 +450,6 @@ async function getLowStockHistoryFromDB() {
 }
 
 module.exports = {
-  saveShopData,
-  getShopData,
-  saveShopSettings,
-  getShopSettings,
-  logLowStockAlert,
-  removeShopData,
   getNotificationSettingsFromDB,
   saveNotificationSettingsToDB,
   getCustomThresholdsFromDB,
