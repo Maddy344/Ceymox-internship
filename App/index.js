@@ -242,6 +242,37 @@ app.get('/api/debug-thresholds', async (req, res) => {
   }
 });
 
+// Debug route for Supabase connection
+app.get('/api/debug-supabase', async (req, res) => {
+  try {
+    console.log('=== SUPABASE DEBUG ===');
+    console.log('SUPABASE_URL:', process.env.SUPABASE_URL);
+    console.log('SUPABASE_ANON_KEY exists:', !!process.env.SUPABASE_ANON_KEY);
+    
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_ANON_KEY) {
+      return res.json({
+        error: 'Missing Supabase credentials',
+        url: process.env.SUPABASE_URL,
+        keyExists: !!process.env.SUPABASE_ANON_KEY
+      });
+    }
+    
+    const { createClient } = require('@supabase/supabase-js');
+    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+    
+    const { data, error } = await supabase.from('emails').select('count').limit(1);
+    
+    res.json({
+      success: !error,
+      error: error?.message,
+      data,
+      url: process.env.SUPABASE_URL
+    });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
   try {
