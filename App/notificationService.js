@@ -11,36 +11,29 @@ const SETTINGS_FILE = path.join(__dirname, 'data', 'notification-settings.json')
  */
 async function getNotificationSettings() {
   try {
-    // Try file system first as it's more reliable in Vercel
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    
-    try {
-      const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
-      const fileSettings = JSON.parse(settingsData);
-      console.log('Retrieved settings from file:', fileSettings);
-      return fileSettings;
-    } catch (fileError) {
-      console.log('No settings file found or error reading it:', fileError.message);
-    }
-    
-    // If file system failed, try database
+    // Try database first (Vercel compatible)
     try {
       const { getNotificationSettingsFromDB } = require('./database');
       const dbSettings = await getNotificationSettingsFromDB();
       if (dbSettings) {
         console.log('Retrieved settings from database:', dbSettings);
-        
-        // Save to local file for future use
-        try {
-          await fs.writeFile(SETTINGS_FILE, JSON.stringify(dbSettings, null, 2));
-        } catch (writeError) {
-          console.error('Error saving settings to file:', writeError);
-        }
-        
         return dbSettings;
       }
     } catch (dbError) {
       console.error('Error getting settings from database:', dbError);
+    }
+    
+    // Only try file system if not on Vercel
+    if (process.env.VERCEL !== '1') {
+      try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+        const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
+        const fileSettings = JSON.parse(settingsData);
+        console.log('Retrieved settings from file:', fileSettings);
+        return fileSettings;
+      } catch (fileError) {
+        console.log('No settings file found or error reading it:', fileError.message);
+      }
     }
     
     // If database retrieval failed, try local file
@@ -82,21 +75,22 @@ async function getNotificationSettings() {
  */
 async function saveNotificationSettings(settings) {
   try {
-    // First save to database
+    // Save to database first
     const { saveNotificationSettingsToDB } = require('./database');
     const dbSuccess = await saveNotificationSettingsToDB(settings);
     console.log('Saved settings to database:', dbSuccess);
     
-    // Also save to local file as backup
-    try {
-      await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-      await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-    } catch (fileError) {
-      console.error('Error saving settings to file:', fileError);
-      // Continue even if file save fails
+    // Only save to file if not on Vercel
+    if (process.env.VERCEL !== '1') {
+      try {
+        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+        await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+      } catch (fileError) {
+        console.error('Error saving settings to file:', fileError);
+      }
     }
     
-    return true;
+    return dbSuccess;
   } catch (error) {
     console.error('Error saving notification settings:', error);
     return false;
@@ -208,37 +202,35 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
         read: false
       };
       
-      // Save to local file first (more reliable in Vercel)
-      try {
-        const emailsFile = path.join(__dirname, 'data', 'emails.json');
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        
-        // Read existing emails or create new array
-        let emails = [];
-        try {
-          const emailsData = await fs.readFile(emailsFile, 'utf8');
-          emails = JSON.parse(emailsData);
-        } catch (err) {
-          // File doesn't exist yet, that's ok
-          console.log('Creating new emails file');
-        }
-        
-        emails.unshift(emailRecord);
-        
-        // Store all emails forever - no limit
-        await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
-        console.log('Email saved to file inbox');
-      } catch (fileError) {
-        console.error('Error saving email to file:', fileError);
-      }
-      
-      // Then try to save to database
+      // Save to database first (Vercel compatible)
       try {
         const { saveEmailToDB } = require('./database');
         const dbSuccess = await saveEmailToDB(emailRecord);
         console.log('Email saved to database inbox:', dbSuccess);
       } catch (dbError) {
         console.error('Error saving email to database:', dbError);
+      }
+      
+      // Only save to file if not on Vercel
+      if (process.env.VERCEL !== '1') {
+        try {
+          const emailsFile = path.join(__dirname, 'data', 'emails.json');
+          await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+          
+          let emails = [];
+          try {
+            const emailsData = await fs.readFile(emailsFile, 'utf8');
+            emails = JSON.parse(emailsData);
+          } catch (err) {
+            console.log('Creating new emails file');
+          }
+          
+          emails.unshift(emailRecord);
+          await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
+          console.log('Email saved to file inbox');
+        } catch (fileError) {
+          console.error('Error saving email to file:', fileError);
+        }
       }
     } else {
       console.log('Dashboard notifications are disabled - email not saved to inbox');
