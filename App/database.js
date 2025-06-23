@@ -417,12 +417,16 @@ async function saveEmailToDB(emailRecord) {
   }
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = process.env.SHOP_DOMAIN || 'fakestore-practice1.myshopify.com';
     
-    // Delete dummy data first
-    await supabase.from('emails').delete().eq('shop_domain', 'DUMMY_SHOP');
+    console.log('Attempting to save email to Supabase:', {
+      shop,
+      subject: emailRecord.subject,
+      from: emailRecord.from,
+      to: emailRecord.to
+    });
     
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('emails')
       .insert({
         shop_domain: shop,
@@ -431,12 +435,25 @@ async function saveEmailToDB(emailRecord) {
         to_address: emailRecord.to,
         html_content: emailRecord.html,
         read: false
-      });
+      })
+      .select();
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase email insert error:', error);
+      throw error;
+    }
+    
+    console.log('Email saved to Supabase successfully:', data);
     return true;
   } catch (error) {
     console.error('Error saving email to DB:', error);
+    
+    // If table doesn't exist, provide helpful error message
+    if (error.code === '42P01') {
+      console.error('❌ CRITICAL: emails table does not exist in Supabase!');
+      console.error('Please run the SQL commands in SUPABASE_FIX.sql in your Supabase dashboard.');
+    }
+    
     return false;
   }
 }
@@ -451,7 +468,9 @@ async function getEmailsFromDB() {
   }
   
   try {
-    const shop = process.env.SHOP_DOMAIN || 'default-shop';
+    const shop = process.env.SHOP_DOMAIN || 'fakestore-practice1.myshopify.com';
+    
+    console.log('Fetching emails from Supabase for shop:', shop);
     
     const { data, error } = await supabase
       .from('emails')
@@ -459,7 +478,12 @@ async function getEmailsFromDB() {
       .eq('shop_domain', shop)
       .order('created_at', { ascending: false });
     
-    if (error) throw error;
+    if (error) {
+      console.error('Supabase email fetch error:', error);
+      throw error;
+    }
+    
+    console.log(`Found ${data.length} emails in Supabase`);
     
     // Convert from DB format to app format
     return data.map(email => ({
@@ -473,6 +497,13 @@ async function getEmailsFromDB() {
     }));
   } catch (error) {
     console.error('Error getting emails from DB:', error);
+    
+    // If table doesn't exist, provide helpful error message
+    if (error.code === '42P01') {
+      console.error('❌ CRITICAL: emails table does not exist in Supabase!');
+      console.error('Please run the SQL commands in SUPABASE_FIX.sql in your Supabase dashboard.');
+    }
+    
     return [];
   }
 }
