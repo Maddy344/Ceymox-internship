@@ -23,43 +23,18 @@ async function getNotificationSettings() {
       console.error('Error getting settings from database:', dbError);
     }
     
-    // Only try file system if not on Vercel
-    if (process.env.VERCEL !== '1') {
-      try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
-        const fileSettings = JSON.parse(settingsData);
-        console.log('Retrieved settings from file:', fileSettings);
-        return fileSettings;
-      } catch (fileError) {
-        console.log('No settings file found or error reading it:', fileError.message);
-      }
-    }
-    
-    // If database retrieval failed, try local file
-    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-    
-    try {
-      const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
-      return JSON.parse(settingsData);
-    } catch (err) {
-      // Default settings
-      const defaultSettings = {
-        email: process.env.NOTIFICATION_EMAIL || '',
-        disableEmail: false,
-        disableDashboard: false,
-        defaultThreshold: 5,
-        enableAutoCheck: true
-      };
-      
-      // Save default settings
-      await fs.writeFile(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 2));
-      return defaultSettings;
-    }
+    // Return default settings
+    return {
+      email: 'vampirepes24@gmail.com',
+      disableEmail: false,
+      disableDashboard: false,
+      defaultThreshold: 5,
+      enableAutoCheck: true
+    };
   } catch (error) {
     console.error('Error getting notification settings:', error);
     return {
-      email: process.env.NOTIFICATION_EMAIL || '',
+      email: 'vampirepes24@gmail.com',
       disableEmail: false,
       disableDashboard: false,
       defaultThreshold: 5,
