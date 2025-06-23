@@ -276,7 +276,13 @@ async function saveNotificationSettingsToDB(settings) {
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
-    // Delete dummy data first
+    // First ensure shop exists
+    await supabase.from('shops').upsert({
+      shop_domain: shop,
+      access_token: 'default_token'
+    });
+    
+    // Delete dummy data
     await supabase.from('shop_settings').delete().eq('shop_domain', 'DUMMY_SHOP');
     
     const { error } = await supabase
@@ -290,6 +296,7 @@ async function saveNotificationSettingsToDB(settings) {
         disable_dashboard: settings.disableDashboard || false
       });
     
+    console.log('Settings save result:', error ? error.message : 'SUCCESS');
     return !error;
   } catch (error) {
     console.error('Error saving settings:', error);
@@ -352,14 +359,20 @@ async function saveCustomThresholdsToDB(thresholds) {
   try {
     const shop = process.env.SHOP_DOMAIN || 'default-shop';
     
-    // Delete dummy data first
-    await supabase.from('stock_logs').delete().eq('shop_domain', 'DUMMY_SHOP');
+    // First ensure shop exists
+    await supabase.from('shops').upsert({
+      shop_domain: shop,
+      access_token: 'default_token'
+    });
     
-    // Store thresholds as stock logs with negative quantities to indicate thresholds
+    // Delete dummy data and existing thresholds
+    await supabase.from('stock_logs').delete().eq('shop_domain', 'DUMMY_SHOP');
+    await supabase.from('stock_logs').delete().eq('shop_domain', shop).lt('stock_quantity', 0);
+    
     const records = Object.entries(thresholds).map(([productId, threshold]) => ({
       shop_domain: shop,
       product_id: productId,
-      stock_quantity: -threshold // Negative to indicate threshold
+      stock_quantity: -threshold
     }));
     
     if (records.length > 0) {
@@ -367,6 +380,7 @@ async function saveCustomThresholdsToDB(thresholds) {
         .from('stock_logs')
         .insert(records);
       
+      console.log('Thresholds save result:', error ? error.message : 'SUCCESS');
       return !error;
     }
     
