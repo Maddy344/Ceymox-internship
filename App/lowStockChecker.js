@@ -39,20 +39,20 @@ async function saveCustomThresholds(thresholds) {
  */
 async function checkLowStock(defaultThreshold = 5) {
   try {
+    console.log('🔍 Starting low stock check with threshold:', defaultThreshold);
     const customThresholds = await getCustomThresholds();
     
-    // Check if we should use mock data
-    if (process.env.USE_MOCK_DATA === 'true') {
-      console.log('Using mock data for low stock check');
+    // Try real Shopify data first
+    console.log('🛍️ Fetching products from Shopify...');
+    const products = await fetchShopifyProducts();
+    
+    if (!products || products.length === 0) {
+      console.log('⚠️ No products returned from Shopify, using mock data');
       const mockData = getMockLowStockData();
       const lowStockItems = filterLowStockItems(mockData, defaultThreshold, customThresholds);
       await saveLowStockHistory(lowStockItems, defaultThreshold);
       return lowStockItems;
     }
-    
-    // Use real Shopify data
-    console.log('Fetching products from Shopify...');
-    const products = await fetchShopifyProducts();
     
     // Filter for low stock items using custom thresholds
     const lowStockItems = filterLowStockItems(products, defaultThreshold, customThresholds);
@@ -62,14 +62,20 @@ async function checkLowStock(defaultThreshold = 5) {
     
     return lowStockItems;
   } catch (error) {
-    console.error('Error checking low stock:', error);
+    console.error('❌ Error checking low stock:', error.message);
+    
     // Fallback to mock data in case of error
-    console.log('Falling back to mock data due to error');
-    const mockData = getMockLowStockData();
-    const customThresholds = await getCustomThresholds();
-    const lowStockItems = filterLowStockItems(mockData, defaultThreshold, customThresholds);
-    await saveLowStockHistory(lowStockItems, defaultThreshold);
-    return lowStockItems;
+    console.log('🔄 Falling back to mock data due to error');
+    try {
+      const mockData = getMockLowStockData();
+      const customThresholds = await getCustomThresholds();
+      const lowStockItems = filterLowStockItems(mockData, defaultThreshold, customThresholds);
+      await saveLowStockHistory(lowStockItems, defaultThreshold);
+      return lowStockItems;
+    } catch (fallbackError) {
+      console.error('❌ Even fallback failed:', fallbackError);
+      throw new Error('Both Shopify API and fallback failed');
+    }
   }
 }
 
@@ -141,25 +147,38 @@ async function fetchShopifyProducts() {
   const shop = process.env.SHOP_DOMAIN;
   const accessToken = process.env.ACCESS_TOKEN;
   
+  console.log('🛍️ Fetching from Shopify:', shop ? 'configured' : 'missing');
+  
   if (!shop || !accessToken) {
-    throw new Error('Missing Shopify credentials in .env file');
+    console.error('❌ Missing Shopify credentials');
+    throw new Error('Missing Shopify credentials');
   }
   
   const url = `https://${shop}/admin/api/2023-10/products.json?limit=250`;
   
-  const response = await fetch(url, {
-    headers: {
-      'X-Shopify-Access-Token': accessToken,
-      'Content-Type': 'application/json'
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('📡 Shopify API response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Shopify API error:', response.status, errorText);
+      throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
     }
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+    
+    const data = await response.json();
+    console.log('✅ Fetched', data.products?.length || 0, 'products from Shopify');
+    return data.products || [];
+  } catch (error) {
+    console.error('❌ Error fetching from Shopify:', error.message);
+    throw error;
   }
-  
-  const data = await response.json();
-  return data.products || [];
 }
 
 /**
