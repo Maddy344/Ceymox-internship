@@ -1,8 +1,4 @@
-const {
-  saveShopData,
-  getShopData,
-  removeShopData
-} = require('./database');
+const prisma = require('./prisma-client');
 
 // OAuth Routes for Shopify App
 function setupOAuthRoutes(app) {
@@ -47,8 +43,8 @@ function setupOAuthRoutes(app) {
       const tokenData = await tokenResponse.json();
       
       if (tokenData.access_token) {
-        // Save shop data to database
-        await saveShopData(shop, tokenData.access_token);
+        // Save shop data to database (implement if needed)
+        console.log(`Shop ${shop} authenticated with token`);
         
         // Redirect to app dashboard
         res.redirect(`/?shop=${shop}`);
@@ -67,7 +63,7 @@ function setupOAuthRoutes(app) {
       const shop = req.get('X-Shopify-Shop-Domain');
       
       if (shop) {
-        await removeShopData(shop);
+        // Remove shop data (implement if needed)
         console.log(`App uninstalled from ${shop}`);
       }
       
