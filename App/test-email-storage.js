@@ -19,10 +19,7 @@ async function testEmailStorage() {
   console.log('Save result:', saveResult ? '✅ SUCCESS' : '❌ FAILED');
   
   if (!saveResult) {
-    console.log('\n❌ Email save failed. This means:');
-    console.log('   - The emails table probably doesn\'t exist in Supabase');
-    console.log('   - You need to run the SQL commands in SUPABASE_FIX.sql');
-    console.log('   - Check the console output above for specific error details');
+    console.log('\n❌ Email save failed. Check the console output above for specific error details');
     return;
   }
   
@@ -44,10 +41,10 @@ async function testEmailStorage() {
   if (saveResult && emails.length > 0) {
     console.log('✅ Email storage is working correctly!');
     console.log('✅ Your inbox should now display emails properly');
-    console.log('✅ Low stock alerts will be saved to the database');
+    console.log('✅ Low stock alerts will be saved to local files');
   } else {
     console.log('❌ Email storage is not working properly');
-    console.log('📋 Please follow the steps in TROUBLESHOOTING_GUIDE.md');
+    console.log('📋 Please check the file system permissions and try again');
   }
 }
 

@@ -201,40 +201,7 @@ app.get('/api/debug-thresholds', async (req, res) => {
   }
 });
 
-// Debug route for Supabase connection
-app.get('/api/debug-supabase', async (req, res) => {
-  try {
-    console.log('=== SUPABASE DEBUG ===');
-    const { data, error } = await supabase.from('emails').select('count').limit(1);
-    
-    res.json({
-      success: !error,
-      error: error?.message,
-      data,
-      url: supabaseUrl
-    });
-  } catch (err) {
-    res.json({ error: err.message });
-  }
-});
 
-// Test route to insert dummy email
-app.get('/api/test-email', async (req, res) => {
-  try {
-    const testEmail = {
-      subject: 'Test Low Stock Alert - ' + new Date().toISOString(),
-      from: 'Low Stock Alert <alerts@lowstockalert.com>',
-      to: 'vampirepes24@gmail.com',
-      html: '<h2>Test Email</h2><p>This is a test email to verify the inbox is working.</p>',
-      read: false
-    };
-    
-    const saved = await saveEmailToDB(testEmail);
-    res.json({ success: saved, message: 'Test email inserted' });
-  } catch (error) {
-    res.json({ error: error.message });
-  }
-});
 
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
