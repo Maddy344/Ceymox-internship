@@ -1,0 +1,70 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Product {
+  id        String   @id
+  title     String
+  handle    String
+  variants  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("products")
+}
+
+model NotificationSettings {
+  id                Int     @id @default(autoincrement())
+  email             String
+  disableEmail      Boolean @default(false)
+  disableDashboard  Boolean @default(false)
+  defaultThreshold  Int     @default(5)
+  enableAutoCheck   Boolean @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("notification_settings")
+}
+
+model EmailLog {
+  id        Int      @id @default(autoincrement())
+  subject   String
+  fromEmail String   @map("from")
+  toEmail   String   @map("to")
+  html      String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("email_logs")
+}
+
+model CustomThreshold {
+  id         Int      @id @default(autoincrement())
+  productId  String   @map("product_id")
+  threshold  Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([productId])
+  @@map("custom_thresholds")
+}
+
+model LowStockHistory {
+  id        Int      @id @default(autoincrement())
+  date      DateTime
+  threshold Int
+  itemCount Int      @map("item_count")
+  items     Json
+  createdAt DateTime @default(now())
+
+  @@map("low_stock_history")
+}

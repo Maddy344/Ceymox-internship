@@ -1,9 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
-const { exec } = require('child_process');
 const cron = require('node-cron');
-const fs = require('fs').promises;
+const prisma = require('./prisma-client');
 const { checkLowStock, sendLowStockNotifications, getLowStockHistory, getCustomThresholds, saveCustomThresholds, getAllProducts } = require('./lowStockChecker');
 const { 
   getNotificationSettings, 
@@ -11,16 +10,6 @@ const {
   sendEmailNotification,
   sendSummaryReport
 } = require('./notificationService');
-const {
-  getNotificationSettingsFromDB,
-  saveNotificationSettingsToDB,
-  getCustomThresholdsFromDB,
-  saveCustomThresholdsToDB,
-  saveEmailToDB,
-  getEmailsFromDB,
-  markEmailAsReadInDB,
-  deleteEmailsFromDB
-} = require('./database');
 const { setupOAuthRoutes } = require('./oauth');
 
 const app = express();
@@ -108,8 +97,8 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', express.json(), async (req, res) => {
   try {
     console.log('Saving settings:', req.body);
-    const dbSuccess = await saveNotificationSettingsToDB(req.body);
-    console.log('Settings saved to database:', dbSuccess);
+    await prisma.notificationSettings.deleteMany();
+    await prisma.notificationSettings.create({ data: req.body });
     res.json({ success: true, message: 'Settings saved successfully' });
   } catch (error) {
     console.error('Error in settings API:', error);
@@ -163,8 +152,12 @@ app.get('/api/custom-thresholds', async (req, res) => {
 app.post('/api/custom-thresholds', express.json(), async (req, res) => {
   try {
     console.log('Saving custom thresholds:', req.body);
-    const dbSuccess = await saveCustomThresholdsToDB(req.body);
-    console.log('Custom thresholds saved to database:', dbSuccess);
+    await prisma.customThreshold.deleteMany();
+    const thresholds = Object.entries(req.body).map(([productId, threshold]) => ({
+      productId,
+      threshold: parseInt(threshold)
+    }));
+    await prisma.customThreshold.createMany({ data: thresholds });
     res.json({ success: true, message: 'Custom thresholds saved successfully' });
   } catch (error) {
     console.error('Error in custom thresholds API:', error);
@@ -206,9 +199,9 @@ app.get('/api/debug-thresholds', async (req, res) => {
 // API route to get emails
 app.get('/api/emails', async (req, res) => {
   try {
-    const dbEmails = await getEmailsFromDB();
-    console.log(`Retrieved ${dbEmails.length} emails from database`);
-    res.json(dbEmails);
+    const emails = await prisma.emailLog.findMany({ orderBy: { createdAt: 'desc' } });
+    console.log(`Retrieved ${emails.length} emails from database`);
+    res.json(emails);
   } catch (error) {
     console.error('Error getting emails:', error);
     res.status(500).json({ error: 'Failed to get emails' });
@@ -219,14 +212,12 @@ app.get('/api/emails', async (req, res) => {
 app.post('/api/emails/:id/read', async (req, res) => {
   try {
     const emailId = parseInt(req.params.id);
-    const dbSuccess = await markEmailAsReadInDB(emailId);
-    
-    if (dbSuccess) {
-      console.log(`Marked email ${emailId} as read in database`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ error: 'Email not found' });
-    }
+    await prisma.emailLog.update({
+      where: { id: emailId },
+      data: { read: true }
+    });
+    console.log(`Marked email ${emailId} as read`);
+    res.json({ success: true });
   } catch (error) {
     console.error('Error marking email as read:', error);
     res.status(500).json({ error: 'Failed to mark email as read' });
@@ -237,14 +228,11 @@ app.post('/api/emails/:id/read', async (req, res) => {
 app.post('/api/emails/delete', express.json(), async (req, res) => {
   try {
     const emailIds = req.body.emailIds;
-    const dbSuccess = await deleteEmailsFromDB(emailIds);
-    
-    if (dbSuccess) {
-      console.log(`Deleted ${emailIds.length} emails from database`);
-      res.json({ success: true, deletedCount: emailIds.length });
-    } else {
-      res.status(500).json({ error: 'Failed to delete emails' });
-    }
+    await prisma.emailLog.deleteMany({
+      where: { id: { in: emailIds } }
+    });
+    console.log(`Deleted ${emailIds.length} emails`);
+    res.json({ success: true, deletedCount: emailIds.length });
   } catch (error) {
     console.error('Error deleting emails:', error);
     res.status(500).json({ error: 'Failed to delete emails' });

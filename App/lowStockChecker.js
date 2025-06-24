@@ -1,5 +1,5 @@
 const fetch = require('node-fetch');
-const { getCustomThresholdsFromDB, saveCustomThresholdsToDB, saveLowStockHistoryToDB } = require('./database');
+const prisma = require('./prisma-client');
 
 /**
  * Get custom thresholds for products
@@ -7,9 +7,13 @@ const { getCustomThresholdsFromDB, saveCustomThresholdsToDB, saveLowStockHistory
  */
 async function getCustomThresholds() {
   try {
-    const dbThresholds = await getCustomThresholdsFromDB();
-    console.log('Retrieved custom thresholds from database:', dbThresholds);
-    return dbThresholds || {};
+    const thresholds = await prisma.customThreshold.findMany();
+    const thresholdMap = {};
+    thresholds.forEach(t => {
+      thresholdMap[t.productId] = t.threshold;
+    });
+    console.log('Retrieved custom thresholds from database:', thresholdMap);
+    return thresholdMap;
   } catch (error) {
     console.error('Error getting custom thresholds:', error);
     return {};
@@ -23,9 +27,14 @@ async function getCustomThresholds() {
  */
 async function saveCustomThresholds(thresholds) {
   try {
-    const dbSuccess = await saveCustomThresholdsToDB(thresholds);
-    console.log('Saved custom thresholds to database:', dbSuccess);
-    return dbSuccess;
+    await prisma.customThreshold.deleteMany();
+    const data = Object.entries(thresholds).map(([productId, threshold]) => ({
+      productId,
+      threshold: parseInt(threshold)
+    }));
+    await prisma.customThreshold.createMany({ data });
+    console.log('Saved custom thresholds to database');
+    return true;
   } catch (error) {
     console.error('Error saving custom thresholds:', error);
     return false;
@@ -116,7 +125,7 @@ function filterLowStockItems(products, defaultThreshold, customThresholds) {
 async function saveLowStockHistory(lowStockItems, threshold) {
   try {
     const entry = {
-      date: new Date().toISOString(),
+      date: new Date(),
       threshold,
       itemCount: lowStockItems.length,
       items: lowStockItems.map(item => ({
@@ -132,7 +141,7 @@ async function saveLowStockHistory(lowStockItems, threshold) {
       }))
     };
     
-    await saveLowStockHistoryToDB(entry);
+    await prisma.lowStockHistory.create({ data: entry });
     console.log('Low stock history saved to database');
   } catch (error) {
     console.error('Error saving low stock history:', error);
@@ -239,45 +248,38 @@ function getMockLowStockData() {
  */
 async function getLowStockHistory(period = 'daily', selectedDate = null) {
   try {
-    const { getLowStockHistoryFromDB } = require('./database');
-    const history = await getLowStockHistoryFromDB();
+    let whereClause = {};
     
-    if (!selectedDate) {
-      return history;
-    }
-    
-    const targetDate = new Date(selectedDate);
-    
-    return history.filter(entry => {
-      const entryDate = new Date(entry.date);
+    if (selectedDate) {
+      const targetDate = new Date(selectedDate);
       
       switch (period) {
         case 'daily':
-          return entryDate.toDateString() === targetDate.toDateString();
+          const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+          const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+          whereClause.date = { gte: startOfDay, lte: endOfDay };
+          break;
         case 'weekly':
-          const targetDay = targetDate.getDate();
-          const entryDay = entryDate.getDate();
-          const targetMonth = targetDate.getMonth();
-          const entryMonth = entryDate.getMonth();
-          const targetYear = targetDate.getFullYear();
-          const entryYear = entryDate.getFullYear();
-          
-          if (targetMonth !== entryMonth || targetYear !== entryYear) {
-            return false;
-          }
-          
-          const weekNumber = Math.ceil(targetDay / 7);
-          const weekStart = (weekNumber - 1) * 7 + 1;
-          const weekEnd = Math.min(weekNumber * 7, new Date(targetYear, targetMonth + 1, 0).getDate());
-          
-          return entryDay >= weekStart && entryDay <= weekEnd;
+          const startOfWeek = new Date(targetDate);
+          startOfWeek.setDate(targetDate.getDate() - targetDate.getDay());
+          const endOfWeek = new Date(startOfWeek);
+          endOfWeek.setDate(startOfWeek.getDate() + 6);
+          whereClause.date = { gte: startOfWeek, lte: endOfWeek };
+          break;
         case 'monthly':
-          return entryDate.getMonth() === targetDate.getMonth() && 
-                 entryDate.getFullYear() === targetDate.getFullYear();
-        default:
-          return entryDate.toDateString() === targetDate.toDateString();
+          const startOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+          const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+          whereClause.date = { gte: startOfMonth, lte: endOfMonth };
+          break;
       }
+    }
+    
+    const history = await prisma.lowStockHistory.findMany({
+      where: whereClause,
+      orderBy: { date: 'desc' }
     });
+    
+    return history;
   } catch (error) {
     console.error('Error getting low stock history:', error);
     return [];
@@ -303,17 +305,16 @@ async function sendLowStockNotifications(lowStockItems) {
     
     // Save individual product alert to emails table
     try {
-      const { saveEmailToDB } = require('./database');
       const emailRecord = {
         subject: `Low Stock Alert: ${item.title}`,
-        from: 'Low Stock Alert <alerts@lowstockalert.com>',
-        to: 'vampirepes24@gmail.com',
+        fromEmail: 'Low Stock Alert <alerts@lowstockalert.com>',
+        toEmail: 'vampirepes24@gmail.com',
         html: `<h3>Low Stock Alert</h3><p><strong>${item.title}</strong> is running low with only <strong>${totalInventory}</strong> items in stock.</p>`,
         read: false
       };
       
-      const saved = await saveEmailToDB(emailRecord);
-      console.log(`📧 Email record saved for ${item.title}:`, saved);
+      await prisma.emailLog.create({ data: emailRecord });
+      console.log(`📧 Email record saved for ${item.title}`);
     } catch (error) {
       console.error('Error saving email record:', error);
     }

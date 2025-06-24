@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const prisma = require('./prisma-client');
 
 /**
  * Get notification settings
@@ -6,26 +7,24 @@ const nodemailer = require('nodemailer');
  */
 async function getNotificationSettings() {
   try {
-    // Try database first (Vercel compatible)
-    try {
-      const { getNotificationSettingsFromDB } = require('./database');
-      const dbSettings = await getNotificationSettingsFromDB();
-      if (dbSettings) {
-        console.log('Retrieved settings from database:', dbSettings);
-        return dbSettings;
-      }
-    } catch (dbError) {
-      console.error('Error getting settings from database:', dbError);
+    const settings = await prisma.notificationSettings.findFirst();
+    if (settings) {
+      console.log('Retrieved settings from database:', settings);
+      return settings;
     }
     
     // Return default settings
-    return {
+    const defaultSettings = {
       email: 'vampirepes24@gmail.com',
       disableEmail: false,
       disableDashboard: false,
       defaultThreshold: 5,
       enableAutoCheck: true
     };
+    
+    // Create default settings in database
+    await prisma.notificationSettings.create({ data: defaultSettings });
+    return defaultSettings;
   } catch (error) {
     console.error('Error getting notification settings:', error);
     return {
@@ -45,22 +44,10 @@ async function getNotificationSettings() {
  */
 async function saveNotificationSettings(settings) {
   try {
-    // Save to database first
-    const { saveNotificationSettingsToDB } = require('./database');
-    const dbSuccess = await saveNotificationSettingsToDB(settings);
-    console.log('Saved settings to database:', dbSuccess);
-    
-    // Only save to file if not on Vercel
-    if (process.env.VERCEL !== '1') {
-      try {
-        await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-        await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
-      } catch (fileError) {
-        console.error('Error saving settings to file:', fileError);
-      }
-    }
-    
-    return dbSuccess;
+    await prisma.notificationSettings.deleteMany();
+    await prisma.notificationSettings.create({ data: settings });
+    console.log('Saved settings to database');
+    return true;
   } catch (error) {
     console.error('Error saving notification settings:', error);
     return false;
@@ -161,46 +148,19 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
     
     // Always save email message for Email Status Checker (unless dashboard notifications are disabled)
     if (!settings.disableDashboard) {
-      // Create email record
       const emailRecord = {
-        id: Date.now(),
         subject: `Low Stock Alert: ${lowStockItems.length} products below threshold`,
-        from: 'Low Stock Alert <alerts@lowstockalert.com>',
-        to: settings.email,
-        date: new Date().toISOString(),
+        fromEmail: 'Low Stock Alert <alerts@lowstockalert.com>',
+        toEmail: settings.email,
         html: emailHtml,
         read: false
       };
       
-      // Save to database first (Vercel compatible)
       try {
-        const { saveEmailToDB } = require('./database');
-        const dbSuccess = await saveEmailToDB(emailRecord);
-        console.log('Email saved to database inbox:', dbSuccess);
+        await prisma.emailLog.create({ data: emailRecord });
+        console.log('Email saved to database inbox');
       } catch (dbError) {
         console.error('Error saving email to database:', dbError);
-      }
-      
-      // Only save to file if not on Vercel
-      if (process.env.VERCEL !== '1') {
-        try {
-          const emailsFile = path.join(__dirname, 'data', 'emails.json');
-          await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
-          
-          let emails = [];
-          try {
-            const emailsData = await fs.readFile(emailsFile, 'utf8');
-            emails = JSON.parse(emailsData);
-          } catch (err) {
-            console.log('Creating new emails file');
-          }
-          
-          emails.unshift(emailRecord);
-          await fs.writeFile(emailsFile, JSON.stringify(emails, null, 2));
-          console.log('Email saved to file inbox');
-        } catch (fileError) {
-          console.error('Error saving email to file:', fileError);
-        }
       }
     } else {
       console.log('Dashboard notifications are disabled - email not saved to inbox');
