@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js",
+    "dev": "node index.js",
+    "build": "echo 'No build step needed' && exit 0",
+    "postinstall": "prisma generate",
     "import-stock": "node import_stock_logs.js",
     "test-simple": "node simple-test.js",
     "db:generate": "prisma generate",
