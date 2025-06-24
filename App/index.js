@@ -322,3 +322,14 @@ app.listen(PORT, () => {
   // Initialize scheduled tasks
   initScheduledTasks();
 });
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  await prisma.$disconnect();
+  process.exit(0);
+});
