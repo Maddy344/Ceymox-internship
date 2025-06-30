@@ -1,20 +1,28 @@
-# Node modules
+# Dependencies
 node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
 
 # Environment variables
 .env
 
-# Local data
-data/*.json
-data/*.txt
+# Data files
+data/
 
-# Logs
-*.log
-npm-debug.log*
+# OS files
+.DS_Store
+Thumbs.db
 
 # IDE files
-.vscode/
 .idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
 
-# Git history with sensitive information
-.git/
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

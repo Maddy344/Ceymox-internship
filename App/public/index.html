@@ -269,15 +269,6 @@
       document.getElementById('report-date').value = new Date().toISOString().split('T')[0];
       // Populate month dropdown
       populateMonthDropdown();
-      
-      // Add event listener for tab changes to refresh settings when switching tabs
-      document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(tab => {
-        tab.addEventListener('shown.bs.tab', function(event) {
-          if (event.target.id === 'settings-tab') {
-            loadSavedSettings();
-          }
-        });
-      });
     });
     
     function populateMonthDropdown() {
@@ -416,55 +407,37 @@
     }
     
     async function loadSavedSettings() {
-      // First check localStorage as it's more reliable
-      const email = localStorage.getItem('notification-email');
-      const disableEmail = localStorage.getItem('disable-email') === 'true';
-      const disableDashboard = localStorage.getItem('disable-dashboard') === 'true';
-      const defaultThreshold = localStorage.getItem('default-threshold') || '5';
-      const enableAutoCheck = localStorage.getItem('enable-auto-check') === 'true';
-      
-      // If we have values in localStorage, use them
-      if (email !== null) {
-        console.log('Using settings from localStorage');
+      try {
+        // Load notification settings from backend
+        const response = await fetch('/api/settings');
+        const settings = await response.json();
+        
+        document.getElementById('email').value = settings.email || '';
+        document.getElementById('disable-email').checked = settings.disableEmail || false;
+        document.getElementById('disable-dashboard').checked = settings.disableDashboard || false;
+        document.getElementById('default-threshold').value = settings.defaultThreshold || 5;
+        document.getElementById('enable-auto-check').checked = settings.enableAutoCheck || false;
+        
+        // Update dashboard threshold field
+        document.getElementById('threshold').value = settings.defaultThreshold || 5;
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        // Fallback to localStorage
+        const email = localStorage.getItem('notification-email') || '';
+        const disableEmail = localStorage.getItem('disable-email') === 'true';
+        const disableDashboard = localStorage.getItem('disable-dashboard') === 'true';
+        
         document.getElementById('email').value = email;
         document.getElementById('disable-email').checked = disableEmail;
         document.getElementById('disable-dashboard').checked = disableDashboard;
+        
+        // Load threshold settings from localStorage as fallback
+        const defaultThreshold = localStorage.getItem('default-threshold') || '5';
+        const enableAutoCheck = localStorage.getItem('enable-auto-check') === 'true';
+        
         document.getElementById('default-threshold').value = defaultThreshold;
         document.getElementById('threshold').value = defaultThreshold;
         document.getElementById('enable-auto-check').checked = enableAutoCheck;
-      }
-      
-      // Then try to get from server in the background
-      try {
-        console.log('Loading settings from server...');
-        const response = await fetch('/api/settings');
-        if (!response.ok) {
-          throw new Error(`Server returned ${response.status}: ${response.statusText}`);
-        }
-        
-        const settings = await response.json();
-        console.log('Settings loaded from server:', settings);
-        
-        // Only update if localStorage doesn't have values or if server values are different
-        if (email === null || settings.defaultThreshold !== parseInt(defaultThreshold)) {
-          document.getElementById('email').value = settings.email || '';
-          document.getElementById('disable-email').checked = settings.disableEmail || false;
-          document.getElementById('disable-dashboard').checked = settings.disableDashboard || false;
-          document.getElementById('default-threshold').value = settings.defaultThreshold || 5;
-          document.getElementById('enable-auto-check').checked = settings.enableAutoCheck || false;
-          
-          // Update dashboard threshold field
-          document.getElementById('threshold').value = settings.defaultThreshold || 5;
-          
-          // Update localStorage
-          localStorage.setItem('notification-email', settings.email || '');
-          localStorage.setItem('disable-email', settings.disableEmail || false);
-          localStorage.setItem('disable-dashboard', settings.disableDashboard || false);
-          localStorage.setItem('default-threshold', settings.defaultThreshold || 5);
-          localStorage.setItem('enable-auto-check', settings.enableAutoCheck || false);
-        }
-      } catch (error) {
-        console.error('Error loading settings from server:', error);
       }
     }
     
@@ -483,19 +456,6 @@
         enableAutoCheck: document.getElementById('enable-auto-check').checked
       };
       
-      // Save to localStorage immediately
-      localStorage.setItem('notification-email', email);
-      localStorage.setItem('disable-email', disableEmail);
-      localStorage.setItem('disable-dashboard', disableDashboard);
-      localStorage.setItem('default-threshold', settings.defaultThreshold);
-      localStorage.setItem('enable-auto-check', settings.enableAutoCheck);
-      
-      // Show saving indicator
-      const saveBtn = document.querySelector('#notification-form button[type="submit"]');
-      const originalText = saveBtn.textContent;
-      saveBtn.textContent = 'Saving...';
-      saveBtn.disabled = true;
-      
       try {
         const response = await fetch('/api/settings', {
           method: 'POST',
@@ -505,20 +465,21 @@
           body: JSON.stringify(settings)
         });
         
-        // Even if the server returns an error, we'll consider it a success
-        // since we've already saved to localStorage
-        alert('Notification settings saved! The page will reload to apply changes.');
-        window.location.reload();
+        const data = await response.json();
+        
+        if (data.success) {
+          // Also save to localStorage for UI state
+          localStorage.setItem('notification-email', email);
+          localStorage.setItem('disable-email', disableEmail);
+          localStorage.setItem('disable-dashboard', disableDashboard);
+          
+          alert('Notification settings saved!');
+        } else {
+          alert('Failed to save settings: ' + data.error);
+        }
       } catch (error) {
         console.error('Error saving settings:', error);
-        // Even if there's an error, we'll consider it a success
-        // since we've already saved to localStorage
-        alert('Settings saved locally. The page will reload to apply changes.');
-        window.location.reload();
-      } finally {
-        // Restore button state (though it will reload anyway)
-        saveBtn.textContent = originalText;
-        saveBtn.disabled = false;
+        alert('Failed to save settings. Check console for details.');
       }
     }
     
@@ -536,40 +497,33 @@
         enableAutoCheck: enableAutoCheck
       };
       
-      // Save to localStorage immediately
-      localStorage.setItem('default-threshold', defaultThreshold);
-      localStorage.setItem('enable-auto-check', enableAutoCheck);
-      localStorage.setItem('notification-email', settings.email);
-      localStorage.setItem('disable-email', settings.disableEmail);
-      localStorage.setItem('disable-dashboard', settings.disableDashboard);
-      
-      // Update the threshold in the dashboard tab
-      document.getElementById('threshold').value = defaultThreshold;
-      
-      // Show saving indicator
-      const saveBtn = document.querySelector('#threshold-form button[type="submit"]');
-      const originalText = saveBtn.textContent;
-      saveBtn.textContent = 'Saving...';
-      saveBtn.disabled = true;
-      
-      // Consider it a success immediately since we've saved to localStorage
-      setTimeout(() => {
-        // Try to save to server in the background
-        fetch('/api/settings', {
+      try {
+        const response = await fetch('/api/settings', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(settings)
-        }).catch(error => {
-          console.error('Error saving threshold settings to server:', error);
-          // Ignore errors since we've already saved to localStorage
         });
         
-        // Show success message and reload
-        alert('Threshold settings saved! The page will reload to apply changes.');
-        window.location.reload();
-      }, 500);
+        const data = await response.json();
+        
+        if (data.success) {
+          // Also save to localStorage for UI state
+          localStorage.setItem('default-threshold', defaultThreshold);
+          localStorage.setItem('enable-auto-check', enableAutoCheck);
+          
+          // Update the threshold in the dashboard tab
+          document.getElementById('threshold').value = defaultThreshold;
+          
+          alert('Threshold settings saved!');
+        } else {
+          alert('Failed to save threshold settings: ' + data.error);
+        }
+      } catch (error) {
+        console.error('Error saving threshold settings:', error);
+        alert('Failed to save threshold settings. Check console for details.');
+      }
     }
     
     async function checkLowStock() {
@@ -594,31 +548,9 @@
         let html = '<div class="table-responsive"><table class="table table-hover">';
         html += '<thead><tr><th>Product</th><th>Stock</th><th>Threshold Used</th></tr></thead><tbody>';
         
-        // Get custom thresholds from localStorage first
-        let customThresholds = {};
-        const localThresholds = localStorage.getItem('custom-thresholds');
-        if (localThresholds) {
-          try {
-            customThresholds = JSON.parse(localThresholds);
-            console.log('Using custom thresholds from localStorage:', customThresholds);
-          } catch (e) {
-            console.error('Error parsing localStorage thresholds:', e);
-          }
-        }
-        
-        // If localStorage doesn't have thresholds, try server
-        if (Object.keys(customThresholds).length === 0) {
-          try {
-            const thresholdsResponse = await fetch('/api/custom-thresholds');
-            if (thresholdsResponse.ok) {
-              const serverThresholds = await thresholdsResponse.json();
-              customThresholds = serverThresholds;
-              console.log('Using custom thresholds from server:', customThresholds);
-            }
-          } catch (thresholdError) {
-            console.error('Error loading custom thresholds:', thresholdError);
-          }
-        }
+        // Get custom thresholds to show which threshold was used
+        const thresholdsResponse = await fetch('/api/custom-thresholds');
+        const customThresholds = await thresholdsResponse.json();
         
         data.items.forEach(product => {
           // Calculate total inventory for the product
@@ -868,34 +800,9 @@
         const response = await fetch('/api/products');
         const data = await response.json();
         
-        // First check localStorage for custom thresholds
-        let customThresholds = {};
-        const localThresholds = localStorage.getItem('custom-thresholds');
-        if (localThresholds) {
-          try {
-            customThresholds = JSON.parse(localThresholds);
-            console.log('Using custom thresholds from localStorage:', customThresholds);
-          } catch (e) {
-            console.error('Error parsing localStorage thresholds:', e);
-          }
-        }
-        
-        // If localStorage doesn't have thresholds, try server
-        if (Object.keys(customThresholds).length === 0) {
-          try {
-            const thresholdsResponse = await fetch('/api/custom-thresholds');
-            if (thresholdsResponse.ok) {
-              const serverThresholds = await thresholdsResponse.json();
-              customThresholds = serverThresholds;
-              console.log('Using custom thresholds from server:', customThresholds);
-              
-              // Save to localStorage for future use
-              localStorage.setItem('custom-thresholds', JSON.stringify(customThresholds));
-            }
-          } catch (thresholdError) {
-            console.error('Error loading custom thresholds:', thresholdError);
-          }
-        }
+        // Get existing custom thresholds
+        const thresholdsResponse = await fetch('/api/custom-thresholds');
+        const customThresholds = await thresholdsResponse.json();
         
         if (!data.products || data.products.length === 0) {
           container.innerHTML = '<p class="text-muted">No products found.</p>';
@@ -995,33 +902,26 @@
         }
       });
       
-      // Store custom thresholds in localStorage immediately
-      localStorage.setItem('custom-thresholds', JSON.stringify(customThresholds));
-      
-      // Show saving indicator
-      const saveBtn = document.getElementById('save-custom-thresholds');
-      const originalText = saveBtn.textContent;
-      saveBtn.textContent = 'Saving...';
-      saveBtn.disabled = true;
-      
-      // Consider it a success immediately since we've saved to localStorage
-      setTimeout(() => {
-        // Try to save to server in the background
-        fetch('/api/custom-thresholds', {
+      try {
+        const response = await fetch('/api/custom-thresholds', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(customThresholds)
-        }).catch(error => {
-          console.error('Error saving custom thresholds to server:', error);
-          // Ignore errors since we've already saved to localStorage
         });
         
-        // Show success message and reload
-        alert('Custom thresholds saved successfully! The page will reload to apply changes.');
-        window.location.reload();
-      }, 500);
+        const data = await response.json();
+        
+        if (data.success) {
+          alert('Custom thresholds saved successfully!');
+        } else {
+          alert(`Failed to save custom thresholds: ${data.error}`);
+        }
+      } catch (error) {
+        console.error('Error saving custom thresholds:', error);
+        alert('Failed to save custom thresholds. Check console for details.');
+      }
     }
   </script>
 </body>

@@ -1,354 +1,301 @@
-const fetch = require('node-fetch');
-const prisma = require('./prisma-client');
-
 /**
- * Get custom thresholds for products
- * @returns {Promise<Object>} - Custom thresholds object
+ * lowStockChecker.js  —  SQL storage version (Aiven MySQL)
+ * --------------------------------------------------------
+ * Pass the MySQL pool (`db`) in once; all reads/writes now
+ * hit the custom_thresholds and low_stock_history tables.
  */
-async function getCustomThresholds() {
+
+module.exports = (db) => {
+  const fetch = require('node-fetch');
+
+  // ---- safeFetch helper ----------------------------------
+async function safeFetch(url, token) {
   try {
-    const thresholds = await prisma.customThreshold.findMany();
-    const thresholdMap = {};
-    thresholds.forEach(t => {
-      thresholdMap[t.productId] = t.threshold;
-    });
-    console.log('Retrieved custom thresholds from database:', thresholdMap);
-    return thresholdMap;
-  } catch (error) {
-    console.error('Error getting custom thresholds:', error);
-    return {};
-  }
-}
-
-/**
- * Save custom thresholds for products
- * @param {Object} thresholds - Custom thresholds object
- * @returns {Promise<boolean>} - Success status
- */
-async function saveCustomThresholds(thresholds) {
-  try {
-    await prisma.customThreshold.deleteMany();
-    const data = Object.entries(thresholds).map(([productId, threshold]) => ({
-      productId,
-      threshold: parseInt(threshold)
-    }));
-    await prisma.customThreshold.createMany({ data });
-    console.log('Saved custom thresholds to database');
-    return true;
-  } catch (error) {
-    console.error('Error saving custom thresholds:', error);
-    return false;
-  }
-}
-
-/**
- * Check for products with low stock using custom thresholds
- * @param {number} defaultThreshold - The default stock threshold
- * @returns {Promise<Array>} - Array of products with low stock
- */
-async function checkLowStock(defaultThreshold = 5) {
-  try {
-    console.log('🔍 Starting low stock check with threshold:', defaultThreshold);
-    const customThresholds = await getCustomThresholds();
-    
-    // Try real Shopify data first
-    console.log('🛍️ Fetching products from Shopify...');
-    const products = await fetchShopifyProducts();
-    
-    if (!products || products.length === 0) {
-      console.log('⚠️ No products returned from Shopify, using mock data');
-      const mockData = getMockLowStockData();
-      const lowStockItems = filterLowStockItems(mockData, defaultThreshold, customThresholds);
-      await saveLowStockHistory(lowStockItems, defaultThreshold);
-      return lowStockItems;
-    }
-    
-    // Filter for low stock items using custom thresholds
-    const lowStockItems = filterLowStockItems(products, defaultThreshold, customThresholds);
-    
-    // Save history for reporting
-    await saveLowStockHistory(lowStockItems, defaultThreshold);
-    
-    return lowStockItems;
-  } catch (error) {
-    console.error('❌ Error checking low stock:', error.message);
-    
-    // Fallback to mock data in case of error
-    console.log('🔄 Falling back to mock data due to error');
-    try {
-      const mockData = getMockLowStockData();
-      const customThresholds = await getCustomThresholds();
-      const lowStockItems = filterLowStockItems(mockData, defaultThreshold, customThresholds);
-      await saveLowStockHistory(lowStockItems, defaultThreshold);
-      return lowStockItems;
-    } catch (fallbackError) {
-      console.error('❌ Even fallback failed:', fallbackError);
-      throw new Error('Both Shopify API and fallback failed');
-    }
-  }
-}
-
-/**
- * Filter products for low stock using custom thresholds
- * @param {Array} products - Array of products
- * @param {number} defaultThreshold - Default threshold
- * @param {Object} customThresholds - Custom thresholds object
- * @returns {Array} - Filtered low stock items
- */
-function filterLowStockItems(products, defaultThreshold, customThresholds) {
-  console.log('Custom thresholds:', customThresholds);
-  
-  return products.filter(product => {
-    // Get threshold for this product (custom or default)
-    const threshold = customThresholds[product.id] || defaultThreshold;
-    
-    // Calculate total inventory
-    let totalInventory = 0;
-    product.variants.forEach(variant => {
-      if (variant.inventory_management === 'shopify') {
-        totalInventory += variant.inventory_quantity;
-      }
-    });
-    
-    const isLowStock = totalInventory <= threshold;
-    console.log(`Product: ${product.title}, Stock: ${totalInventory}, Threshold: ${threshold}, Low Stock: ${isLowStock}`);
-    
-    return isLowStock;
-  });
-}
-
-/**
- * Save low stock history for reporting
- * @param {Array} lowStockItems - Low stock items
- * @param {number} threshold - The threshold used
- */
-async function saveLowStockHistory(lowStockItems, threshold) {
-  try {
-    const entry = {
-      date: new Date(),
-      threshold,
-      itemCount: lowStockItems.length,
-      items: lowStockItems.map(item => ({
-        id: item.id,
-        title: item.title,
-        lowStockVariants: item.variants
-          .filter(v => v.inventory_quantity <= threshold)
-          .map(v => ({
-            id: v.id,
-            title: v.title,
-            inventory_quantity: v.inventory_quantity
-          }))
-      }))
-    };
-    
-    await prisma.lowStockHistory.create({ data: entry });
-    console.log('Low stock history saved to database');
-  } catch (error) {
-    console.error('Error saving low stock history:', error);
-  }
-}
-
-/**
- * Fetch products from Shopify
- * @returns {Promise<Array>} - Array of products
- */
-async function fetchShopifyProducts() {
-  const shop = process.env.SHOP_DOMAIN;
-  const accessToken = process.env.ACCESS_TOKEN;
-  
-  console.log('🛍️ Fetching from Shopify:', shop ? 'configured' : 'missing');
-  
-  if (!shop || !accessToken) {
-    console.error('❌ Missing Shopify credentials');
-    throw new Error('Missing Shopify credentials');
-  }
-  
-  const url = `https://${shop}/admin/api/2023-10/products.json?limit=250`;
-  
-  try {
-    const response = await fetch(url, {
+    const res = await fetch(url, {
       headers: {
-        'X-Shopify-Access-Token': accessToken,
+        'X-Shopify-Access-Token': token,
         'Content-Type': 'application/json'
       }
     });
-    
-    console.log('📡 Shopify API response status:', response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('❌ Shopify API error:', response.status, errorText);
-      throw new Error(`Shopify API error: ${response.status} ${response.statusText}`);
+
+    if (!res.ok) {
+      const body = await res.text();
+      console.error('Shopify request failed:', { url, status: res.status, body: body.slice(0, 500) });
+      throw new Error(`Shopify API ${res.status}`);
     }
-    
-    const data = await response.json();
-    console.log('✅ Fetched', data.products?.length || 0, 'products from Shopify');
-    return data.products || [];
-  } catch (error) {
-    console.error('❌ Error fetching from Shopify:', error.message);
-    throw error;
+
+    return res.json();
+  } catch (err) {
+    console.error('Network/parse error for', url, err.message);
+    throw err;
   }
 }
 
-/**
- * Get mock low stock data for testing
- * @returns {Array} - Mock low stock items
- */
-function getMockLowStockData() {
-  return [
-    {
-      id: '123456789',
-      title: 'T-Shirt',
-      handle: 't-shirt',
-      variants: [
-        {
-          id: '987654321',
-          inventory_quantity: 3,
-          inventory_management: 'shopify'
-        },
-        {
-          id: '987654322',
-          inventory_quantity: 1,
-          inventory_management: 'shopify'
-        }
-      ]
-    },
-    {
-      id: '223456789',
-      title: 'Jeans',
-      handle: 'jeans',
-      variants: [
-        {
-          id: '887654321',
-          inventory_quantity: 2,
-          inventory_management: 'shopify'
-        }
-      ]
-    },
-    {
-      id: '323456789',
-      title: 'Hoodie',
-      handle: 'hoodie',
-      variants: [
-        {
-          id: '787654321',
-          inventory_quantity: 4,
-          inventory_management: 'shopify'
-        }
-      ]
+  // ───────────────────────────────────────────────────────
+  // thresholds (SQL)
+  // ───────────────────────────────────────────────────────
+  async function getCustomThresholds() {
+    const [rows] = await db.query(
+      'SELECT product_id, threshold FROM custom_thresholds'
+    );
+    const obj = {};
+    rows.forEach(r => { obj[r.product_id] = r.threshold; });
+    return obj;
+  }
+
+  async function saveCustomThresholds(thresholds) {
+    try {
+      const entries = Object.entries(thresholds); // [[id,thr], …]
+      if (entries.length === 0) return true;
+
+      // build one bulk INSERT … ON DUPLICATE KEY UPDATE …
+      const values = entries.map(() => '(?, ?)').join(',');
+      const params = entries.flat();
+
+      const sql =
+        `INSERT INTO custom_thresholds (product_id, threshold)
+         VALUES ${values}
+         ON DUPLICATE KEY UPDATE threshold = VALUES(threshold)`;
+
+      await db.query(sql, params);
+      return true;
+    } catch (err) {
+      console.error('saveCustomThresholds:', err);
+      return false;
     }
-  ];
+  }
+
+  // ───────────────────────────────────────────────────────
+  // main checker
+  // ───────────────────────────────────────────────────────
+  async function checkLowStock(defaultThreshold = 5) {
+    try {
+      const customThresholds = await getCustomThresholds();
+
+      const products =
+        process.env.USE_MOCK_DATA === 'true'
+          ? getMockLowStockData()
+          : await fetchShopifyProducts();
+
+      const low = filterLowStockItems(
+        products,
+        defaultThreshold,
+        customThresholds
+      );
+
+      await saveLowStockHistory(low, defaultThreshold);
+      return low;
+    } catch (err) {
+      console.error('checkLowStock:', err);
+      return [];
+    }
+  }
+
+function filterLowStockItems(products, defaultT, customT) {
+  return products.filter(p => {
+    const t   = customT[p.id] ?? defaultT;
+    const qty = (Array.isArray(p.variants) ? p.variants : [])
+                .reduce((s, v) => s + (v.inventory_quantity ?? 0), 0);
+    return qty <= t;
+  });
 }
 
-/**
- * Get low stock history for reporting
- * @param {string} period - 'daily', 'weekly', or 'monthly'
- * @param {string} selectedDate - Selected date for filtering
- * @returns {Promise<Array>} - History data
- */
-async function getLowStockHistory(period = 'daily', selectedDate = null) {
-  try {
-    let whereClause = {};
-    
-    if (selectedDate) {
-      const targetDate = new Date(selectedDate);
-      
+  // ───────────────────────────────────────────────────────
+  // history (SQL)
+  // ───────────────────────────────────────────────────────
+  async function saveLowStockHistory(items, threshold) {
+    try {
+      await db.query(
+        `INSERT INTO low_stock_history (date, threshold, item_count, items)
+         VALUES (NOW(), ?, ?, ?)`,
+        [threshold, items.length, JSON.stringify(items)]
+      );
+    } catch (err) {
+      console.error('saveLowStockHistory:', err);
+    }
+  }
+
+  async function getLowStockHistory(period = 'daily', selectedDate = null) {
+    try {
+      if (!selectedDate) {
+        // no filter – return everything
+        const [rows] = await db.query('SELECT * FROM low_stock_history');
+        return rows.map(r => ({
+              ...r,
+              itemCount: r.item_count,
+              items:
+              typeof r.items === 'string' ? JSON.parse(r.items) : r.items   // parse only if it’s a JSON string
+        }));
+      }
+
+      const date = new Date(selectedDate);
+      let sql   = '';
+      let args  = [];
+
       switch (period) {
         case 'daily':
-          const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
-          const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
-          whereClause.date = { gte: startOfDay, lte: endOfDay };
+          sql  = `SELECT * FROM low_stock_history
+                  WHERE DATE(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+          args = [date.toISOString().split('T')[0]];
           break;
-        case 'weekly':
-          const startOfWeek = new Date(targetDate);
-          startOfWeek.setDate(targetDate.getDate() - targetDate.getDay());
-          const endOfWeek = new Date(startOfWeek);
-          endOfWeek.setDate(startOfWeek.getDate() + 6);
-          whereClause.date = { gte: startOfWeek, lte: endOfWeek };
+
+        case 'weekly': {
+          const start = new Date(date);
+          start.setDate(date.getDate() - date.getDay()); // Sunday
+          const end = new Date(start);
+          end.setDate(start.getDate() + 6);               // Saturday
+          sql  = `SELECT * FROM low_stock_history
+                  WHERE CONVERT_TZ(date,'+00:00','+05:30') BETWEEN ? AND ?`;;
+          args = [start.toISOString().split('T')[0], end.toISOString().split('T')[0]];
           break;
+        }
+
         case 'monthly':
-          const startOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
-          const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
-          whereClause.date = { gte: startOfMonth, lte: endOfMonth };
+          sql = `SELECT * FROM low_stock_history
+                 WHERE YEAR(CONVERT_TZ(date,'+00:00','+05:30'))  = ?
+                 AND MONTH(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+          args = [date.getFullYear(), date.getMonth() + 1];
           break;
+
+        default:
+          sql  = `SELECT * FROM low_stock_history
+                  WHERE DATE(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+          args = [date.toISOString().split('T')[0]];
       }
+
+      console.log('SQL:', sql);
+      console.log('Args:', args);
+
+      const [rows] = await db.query(sql, args);
+      return rows.map(r => ({
+              ...r,
+              itemCount: r.item_count,
+              items:
+              typeof r.items === 'string' ? JSON.parse(r.items) : r.items   // parse only if it’s a JSON string
+      }));
+    } catch (err) {
+      console.error('getLowStockHistory:', err);
+      return [];
     }
-    
-    const history = await prisma.lowStockHistory.findMany({
-      where: whereClause,
-      orderBy: { date: 'desc' }
-    });
-    
-    return history;
-  } catch (error) {
-    console.error('Error getting low stock history:', error);
-    return [];
   }
+
+  // ───────────────────────────────────────────────────────
+  // notifications (console)
+  // ───────────────────────────────────────────────────────
+  function sendLowStockNotifications(items) {
+  console.log(`Found ${items.length} low-stock items`);
+
+  items.forEach(item => {
+    const qty = (Array.isArray(item.variants) ? item.variants : [])
+      .reduce((sum, v) => sum + (v.inventory_quantity ?? 0), 0);
+
+    console.log(`- ${item.title}: ${qty} left`);
+  });
 }
 
-/**
- * Send notifications for low stock items
- * @param {Array} lowStockItems - Array of products with low stock
- */
-async function sendLowStockNotifications(lowStockItems) {
-  console.log(`📦 Processing ${lowStockItems.length} low stock items for notifications`);
-  
-  for (const item of lowStockItems) {
-    let totalInventory = 0;
-    item.variants.forEach(variant => {
-      if (variant.inventory_management === 'shopify') {
-        totalInventory += variant.inventory_quantity;
-      }
+
+  // ───────────────────────────────────────────────────────
+  // product helpers
+  // ───────────────────────────────────────────────────────
+  async function fetchShopifyProducts() {
+  const shop = process.env.SHOP_DOMAIN;
+  const token = process.env.ACCESS_TOKEN;
+  if (!shop || !token) throw new Error('Missing Shopify creds');
+
+  // Step 1: Fetch products
+  const productUrl = `https://${shop}/admin/api/2025-01/products.json?limit=250&fields=id,title,variants`;
+  const { products = [] } = await safeFetch(productUrl, token);
+
+  // Step 2: Collect all inventory_item_ids
+  const inventoryItemIds = products.flatMap(p => 
+    Array.isArray(p.variants) ? p.variants.map(v => v.inventory_item_id).filter(Boolean) : []
+  );
+
+  console.log('Collected inventory_item_ids:', inventoryItemIds.slice(0, 10), 'total =', inventoryItemIds.length);
+
+  // Step 3: Fetch inventory levels in batches of ≤ 50
+  const inventoryMap = {};
+  const chunkSize = 50;
+
+  for (let i = 0; i < inventoryItemIds.length; i += chunkSize) {
+    const slice = inventoryItemIds.slice(i, i + chunkSize).join(',');
+    const inventoryLevelsUrl =
+      `https://${shop}/admin/api/2025-01/inventory_levels.json?inventory_item_ids=${slice}`;
+
+    const { inventory_levels = [] } = await safeFetch(inventoryLevelsUrl, token);
+    inventory_levels.forEach(lvl => {
+      inventoryMap[lvl.inventory_item_id] = lvl.available;
     });
-    
-    console.log(`- ${item.title}: ${totalInventory} in stock`);
-    
-    // Save individual product alert to emails table
+  }
+
+  // Step 5: Merge available quantity back into products
+  products.forEach(p => {
+    if (Array.isArray(p.variants)) {
+      p.variants.forEach(v => {
+        v.inventory_quantity = inventoryMap[v.inventory_item_id] ?? 0;
+      });
+    }
+  });
+
+  return products;
+}
+
+  // lowStockChecker.js  (top, after fetchShopifyProducts)
+async function fetchInventoryLevels(ids, shop, token) {
+  const chunk = 250;
+  const map   = {};
+
+  for (let i = 0; i < ids.length; i += chunk) {
+    const slice = ids.slice(i, i + chunk).join(',');
+    const url   = `https://${shop}/admin/api/2025-01/inventory_levels.json?inventory_item_ids=${slice}`;
+    const res   = await fetch(url, {
+      headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
+    });
+
+    const { inventory_levels } = await res.json();
+    console.log('✔ Inventory response sample:', inventory_levels.slice(0, 3));
+    inventory_levels.forEach(lvl => {
+      map[lvl.inventory_item_id] = (map[lvl.inventory_item_id] || 0) + lvl.available;
+    });
+  }
+
+  return map;   // ← return after the loop, not inside it
+}
+
+
+
+  function getMockLowStockData() {
+    return [
+      {
+        id: '123',
+        title: 'T-Shirt',
+        variants: [
+          { id: 'v1', inventory_quantity: 3, inventory_management: 'shopify' }
+        ]
+      }
+    ];
+  }
+
+  async function getAllProducts() {
     try {
-      const emailRecord = {
-        subject: `Low Stock Alert: ${item.title}`,
-        fromEmail: 'Low Stock Alert <alerts@lowstockalert.com>',
-        toEmail: 'vampirepes24@gmail.com',
-        html: `<h3>Low Stock Alert</h3><p><strong>${item.title}</strong> is running low with only <strong>${totalInventory}</strong> items in stock.</p>`,
-        read: false
-      };
-      
-      await prisma.emailLog.create({ data: emailRecord });
-      console.log(`📧 Email record saved for ${item.title}`);
-    } catch (error) {
-      console.error('Error saving email record:', error);
-    }
-  }
-}
-
-/**
- * Get all products for threshold management
- * @returns {Promise<Array>} - Array of all products
- */
-async function getAllProducts() {
-  try {
-    // Check if we should use mock data
-    if (process.env.USE_MOCK_DATA === 'true') {
-      console.log('Using mock data for all products');
+      return process.env.USE_MOCK_DATA === 'true'
+        ? getMockLowStockData()
+        : await fetchShopifyProducts();
+    } catch (err) {
+      console.error('getAllProducts:', err);
       return getMockLowStockData();
     }
-    
-    // Use real Shopify data
-    console.log('Fetching all products from Shopify...');
-    return await fetchShopifyProducts();
-  } catch (error) {
-    console.error('Error getting all products:', error);
-    // Fallback to mock data in case of error
-    console.log('Falling back to mock data due to error');
-    return getMockLowStockData();
   }
-}
 
-module.exports = {
-  checkLowStock,
-  sendLowStockNotifications,
-  getLowStockHistory,
-  getCustomThresholds,
-  saveCustomThresholds,
-  getAllProducts
+  // ───────────────────────────────────────────────────────
+  // public API
+  // ───────────────────────────────────────────────────────
+  return {
+    checkLowStock,
+    sendLowStockNotifications,
+    getLowStockHistory,
+    getCustomThresholds,
+    saveCustomThresholds,
+    getAllProducts
+  };
 };

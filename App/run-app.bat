@@ -1,5 +1,5 @@
 @echo off
 echo Starting Shopify Low Stock Alert App...
-echo Server will be available at https://ceymox-internship-low-stock-alert-a.vercel.app
+echo Server will be available at http://localhost:3000
 npm start
 pause

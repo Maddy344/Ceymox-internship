@@ -1,16 +1,25 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const { exec } = require('child_process');
 const cron = require('node-cron');
-const prisma = require('./prisma-client');
-const { checkLowStock, sendLowStockNotifications, getLowStockHistory, getCustomThresholds, saveCustomThresholds, getAllProducts } = require('./lowStockChecker');
-const { 
-  getNotificationSettings, 
-  saveNotificationSettings, 
+const fs = require('fs').promises;
+const db = require('./db');  
+const lowStock = require('./lowStockChecker')(db);   
+const {
+  checkLowStock,
+  sendLowStockNotifications,
+  getLowStockHistory,
+  getCustomThresholds,
+  saveCustomThresholds,
+  getAllProducts
+} = lowStock;                                   
+const {
+  getNotificationSettings,
+  saveNotificationSettings,
   sendEmailNotification,
   sendSummaryReport
 } = require('./notificationService');
-const { setupOAuthRoutes } = require('./oauth');
 
 const app = express();
 const PORT = process.env.PORT || 3004;
@@ -21,9 +30,6 @@ app.use(express.json());
 // Serve static files from the public directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Setup OAuth routes
-setupOAuthRoutes(app);
-
 // Home route - serve the dashboard
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -32,7 +38,7 @@ app.get('/', (req, res) => {
 // Route to check for low stock items
 app.get('/check-low-stock', async (req, res) => {
   try {
-    console.log('🔍 Checking for low stock items...');
+    console.log('Checking for low stock items...');
     const defaultThreshold = req.query.threshold ? parseInt(req.query.threshold) : 5;
     console.log(`Using default threshold: ${defaultThreshold}`);
     
@@ -40,17 +46,6 @@ app.get('/check-low-stock', async (req, res) => {
     console.log(`Found ${lowStockItems.length} low stock items`);
     
     if (lowStockItems.length > 0) {
-      // Log each low stock item
-      lowStockItems.forEach(item => {
-        let totalInventory = 0;
-        item.variants.forEach(variant => {
-          if (variant.inventory_management === 'shopify') {
-            totalInventory += variant.inventory_quantity;
-          }
-        });
-        console.log(`🔍 Product: ${item.title}, Quantity: ${totalInventory}, Threshold: ${defaultThreshold}`);
-      });
-      
       await sendLowStockNotifications(lowStockItems);
       
       // Send email notification if enabled
@@ -58,10 +53,26 @@ app.get('/check-low-stock', async (req, res) => {
       console.log('Notification settings:', settings);
       
       if (!settings.disableEmail) {
-        console.log('📧 Email notifications are enabled, sending email to:', settings.email);
+        console.log('Email notifications are enabled, sending email...');
         try {
           const emailSent = await sendEmailNotification(lowStockItems, defaultThreshold);
           console.log('Email notification sent:', emailSent);
+          
+          // Check if email preview file exists and log its contents
+          try {
+            const emailPreviewPath = path.join(__dirname, 'data', 'email-preview.txt');
+            const emailPreviewExists = await fileExists(emailPreviewPath);
+            
+            if (emailPreviewExists) {
+              const emailPreviewContent = await fs.readFile(emailPreviewPath, 'utf8');
+              console.log('Email preview information:');
+              console.log(emailPreviewContent);
+            } else {
+              console.log('No email preview file found');
+            }
+          } catch (previewError) {
+            console.error('Error checking email preview:', previewError);
+          }
         } catch (emailError) {
           console.error('Error sending email notification:', emailError);
         }
@@ -80,7 +91,15 @@ app.get('/check-low-stock', async (req, res) => {
   }
 });
 
-
+// Helper function to check if a file exists
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // API route to get notification settings
 app.get('/api/settings', async (req, res) => {
@@ -96,12 +115,14 @@ app.get('/api/settings', async (req, res) => {
 // API route to save notification settings
 app.post('/api/settings', express.json(), async (req, res) => {
   try {
-    console.log('Saving settings:', req.body);
-    await prisma.notificationSettings.deleteMany();
-    await prisma.notificationSettings.create({ data: req.body });
-    res.json({ success: true, message: 'Settings saved successfully' });
+    const success = await saveNotificationSettings(req.body);
+    if (success) {
+      res.json({ success: true, message: 'Settings saved successfully' });
+    } else {
+      res.status(500).json({ success: false, error: 'Failed to save settings' });
+    }
   } catch (error) {
-    console.error('Error in settings API:', error);
+    console.error('Error saving settings:', error);
     res.status(500).json({ success: false, error: 'Failed to save settings' });
   }
 });
@@ -151,16 +172,14 @@ app.get('/api/custom-thresholds', async (req, res) => {
 // API route to save custom thresholds
 app.post('/api/custom-thresholds', express.json(), async (req, res) => {
   try {
-    console.log('Saving custom thresholds:', req.body);
-    await prisma.customThreshold.deleteMany();
-    const thresholds = Object.entries(req.body).map(([productId, threshold]) => ({
-      productId,
-      threshold: parseInt(threshold)
-    }));
-    await prisma.customThreshold.createMany({ data: thresholds });
-    res.json({ success: true, message: 'Custom thresholds saved successfully' });
+    const success = await saveCustomThresholds(req.body);
+    if (success) {
+      res.json({ success: true, message: 'Custom thresholds saved successfully' });
+    } else {
+      res.status(500).json({ success: false, error: 'Failed to save custom thresholds' });
+    }
   } catch (error) {
-    console.error('Error in custom thresholds API:', error);
+    console.error('Error saving custom thresholds:', error);
     res.status(500).json({ success: false, error: 'Failed to save custom thresholds' });
   }
 });
@@ -194,47 +213,54 @@ app.get('/api/debug-thresholds', async (req, res) => {
   }
 });
 
+// ────────────── SQL inbox routes ──────────────
 
-
-// API route to get emails
+// 1) list emails
 app.get('/api/emails', async (req, res) => {
-  try {
-    const emails = await prisma.emailLog.findMany({ orderBy: { createdAt: 'desc' } });
-    console.log(`Retrieved ${emails.length} emails from database`);
-    res.json(emails);
-  } catch (error) {
-    console.error('Error getting emails:', error);
-    res.status(500).json({ error: 'Failed to get emails' });
+    try {
+      const [rows] = await db.query(
+      `SELECT id,
+          subject,
+          from_email AS \`from\`,
+          body       AS html,
+          sent_at    AS date,
+          is_read    AS \`read\`
+        FROM emails
+      ORDER BY sent_at DESC`
+    );
+    res.json(rows);
+
+  } catch (err) {
+    console.error('SQL /api/emails:', err);
+    res.status(500).json({ error: 'Failed to load emails' });
   }
 });
 
-// API route to mark email as read
+// 2) mark one email as read
 app.post('/api/emails/:id/read', async (req, res) => {
   try {
-    const emailId = parseInt(req.params.id);
-    await prisma.emailLog.update({
-      where: { id: emailId },
-      data: { read: true }
-    });
-    console.log(`Marked email ${emailId} as read`);
+    await db.query('UPDATE emails SET is_read = TRUE WHERE id = ?', [
+      req.params.id
+    ]);
     res.json({ success: true });
-  } catch (error) {
-    console.error('Error marking email as read:', error);
+  } catch (err) {
+    console.error('SQL mark read:', err);
     res.status(500).json({ error: 'Failed to mark email as read' });
   }
 });
 
-// API route to delete emails
-app.post('/api/emails/delete', express.json(), async (req, res) => {
+
+// 3) delete selected emails
+app.post('/api/emails/delete', async (req, res) => {
   try {
-    const emailIds = req.body.emailIds;
-    await prisma.emailLog.deleteMany({
-      where: { id: { in: emailIds } }
-    });
-    console.log(`Deleted ${emailIds.length} emails`);
+    const { emailIds } = req.body;          // expects array of IDs
+    if (!Array.isArray(emailIds) || !emailIds.length) {
+      return res.status(400).json({ error: 'No IDs supplied' });
+    }
+    await db.query('DELETE FROM emails WHERE id IN (?)', [emailIds]);
     res.json({ success: true, deletedCount: emailIds.length });
-  } catch (error) {
-    console.error('Error deleting emails:', error);
+  } catch (err) {
+    console.error('SQL delete emails:', err);
     res.status(500).json({ error: 'Failed to delete emails' });
   }
 });
@@ -317,19 +343,20 @@ async function initScheduledTasks() {
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Dashboard available at https://ceymox-internship-low-stock-alert-a.vercel.app`);
+  console.log(`Dashboard available at http://localhost:${PORT}`);
   
   // Initialize scheduled tasks
   initScheduledTasks();
-});
-
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  await prisma.$disconnect();
-  process.exit(0);
+  
+  // Open in Chrome
+  const url = `http://localhost:${PORT}`;
+  console.log(`Opening ${url} in Chrome...`);
+  
+  // Use the appropriate command based on the operating system
+  const command = `start chrome ${url}`;
+  exec(command, (error) => {
+    if (error) {
+      console.error(`Failed to open Chrome: ${error}`);
+    }
+  });
 });

@@ -1,5 +1,10 @@
 const nodemailer = require('nodemailer');
-const prisma = require('./prisma-client');
+const fs = require('fs').promises;
+const path = require('path');
+const db = require('./db');       
+
+// File to store notification settings
+const SETTINGS_FILE = path.join(__dirname, 'data', 'notification-settings.json');
 
 /**
  * Get notification settings
@@ -7,28 +12,31 @@ const prisma = require('./prisma-client');
  */
 async function getNotificationSettings() {
   try {
-    const settings = await prisma.notificationSettings.findFirst();
-    if (settings) {
-      console.log('Retrieved settings from database:', settings);
-      return settings;
+    // Create data directory if it doesn't exist
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    
+    // Read settings or use defaults
+    try {
+      const settingsData = await fs.readFile(SETTINGS_FILE, 'utf8');
+      return JSON.parse(settingsData);
+    } catch (err) {
+      // Default settings
+      const defaultSettings = {
+        email: process.env.NOTIFICATION_EMAIL || '',
+        disableEmail: false,
+        disableDashboard: false,
+        defaultThreshold: 5,
+        enableAutoCheck: true
+      };
+      
+      // Save default settings
+      await fs.writeFile(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 2));
+      return defaultSettings;
     }
-    
-    // Return default settings
-    const defaultSettings = {
-      email: 'vampirepes24@gmail.com',
-      disableEmail: false,
-      disableDashboard: false,
-      defaultThreshold: 5,
-      enableAutoCheck: true
-    };
-    
-    // Create default settings in database
-    await prisma.notificationSettings.create({ data: defaultSettings });
-    return defaultSettings;
   } catch (error) {
     console.error('Error getting notification settings:', error);
     return {
-      email: 'vampirepes24@gmail.com',
+      email: process.env.NOTIFICATION_EMAIL || '',
       disableEmail: false,
       disableDashboard: false,
       defaultThreshold: 5,
@@ -44,9 +52,11 @@ async function getNotificationSettings() {
  */
 async function saveNotificationSettings(settings) {
   try {
-    await prisma.notificationSettings.deleteMany();
-    await prisma.notificationSettings.create({ data: settings });
-    console.log('Saved settings to database');
+    // Create data directory if it doesn't exist
+    await fs.mkdir(path.join(__dirname, 'data'), { recursive: true });
+    
+    // Save settings
+    await fs.writeFile(SETTINGS_FILE, JSON.stringify(settings, null, 2));
     return true;
   } catch (error) {
     console.error('Error saving notification settings:', error);
@@ -73,13 +83,9 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
     // Build email content
     let itemsHtml = '';
     lowStockItems.forEach(item => {
-      // Calculate total inventory for the product
-      let totalInventory = 0;
-      item.variants.forEach(variant => {
-        if (variant.inventory_management === 'shopify') {
-          totalInventory += variant.inventory_quantity;
-        }
-      });
+  // Calculate total inventory for the product (guard against missing variants)
+  const totalInventory = (Array.isArray(item.variants) ? item.variants : [])
+    .reduce((sum, v) => sum + (v.inventory_quantity ?? 0), 0);
       
       itemsHtml += `
         <tr>
@@ -106,35 +112,16 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
       <p>Please log in to your Shopify admin to manage inventory.</p>
     `;
     
-    // Create test account for development
-    let testAccount;
-    let transporter;
-    
-    if (process.env.NODE_ENV === 'production' && process.env.SMTP_USER && process.env.SMTP_PASS) {
-      // Use real SMTP settings in production
-      transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
-        port: process.env.SMTP_PORT || 587,
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS
-        }
-      });
-    } else {
-      // Use Ethereal for testing
-      testAccount = await nodemailer.createTestAccount();
-      
-      transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        secure: false,
-        auth: {
-          user: testAccount.user,
-          pass: testAccount.pass
-        }
-      });
+    // -- Build transporter (SMTP only) -------------------------
+  const transporter = nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: Number(process.env.SMTP_PORT),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
     }
+  });
     
     // Send email
     const info = await transporter.sendMail({
@@ -146,27 +133,27 @@ async function sendEmailNotification(lowStockItems, defaultThreshold) {
     
     console.log('Email notification sent:', info.messageId);
     
-    // Always save email message for Email Status Checker (unless dashboard notifications are disabled)
-    if (!settings.disableDashboard) {
-      const emailRecord = {
-        subject: `Low Stock Alert: ${lowStockItems.length} products below threshold`,
-        fromEmail: 'Low Stock Alert <alerts@lowstockalert.com>',
-        toEmail: settings.email,
-        html: emailHtml,
-        read: false
-      };
-      
-      try {
-        await prisma.emailLog.create({ data: emailRecord });
-        console.log('Email saved to database inbox');
-      } catch (dbError) {
-        console.error('Error saving email to database:', dbError);
-      }
-    } else {
-      console.log('Dashboard notifications are disabled - email not saved to inbox');
-    }
+    // -- Save a copy to the SQL inbox table --------------------
+  try {
+    await db.query(
+    `INSERT INTO emails
+       (subject, from_email, body, sent_at, is_read)
+    VALUES
+       (?,        ?,          ?,    NOW(),  FALSE)`,
+    [
+      `Low Stock Alert: ${lowStockItems.length} products below threshold`,
+      'Low Stock Alert <alerts@lowstockalert.com>',
+      emailHtml
+    ]
+  );
+
+    console.log('Email saved to SQL inbox');
+  } catch (sqlErr) {
+    console.error('Failed to save email in SQL:', sqlErr.message);
+  }
     
-    return true;
+  return true;
+
   } catch (error) {
     console.error('Error sending email notification:', error);
     return false;
