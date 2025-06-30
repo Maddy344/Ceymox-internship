@@ -135,7 +135,7 @@ function filterLowStockItems(products, defaultT, customT) {
       switch (period) {
         case 'daily':
           sql  = `SELECT * FROM low_stock_history
-                  WHERE DATE(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+                  WHERE DATE(date) = ?`;
           args = [date.toISOString().split('T')[0]];
           break;
 
@@ -145,21 +145,21 @@ function filterLowStockItems(products, defaultT, customT) {
           const end = new Date(start);
           end.setDate(start.getDate() + 6);               // Saturday
           sql  = `SELECT * FROM low_stock_history
-                  WHERE CONVERT_TZ(date,'+00:00','+05:30') BETWEEN ? AND ?`;;
+                  WHERE date BETWEEN ? AND ?`;;
           args = [start.toISOString().split('T')[0], end.toISOString().split('T')[0]];
           break;
         }
 
         case 'monthly':
           sql = `SELECT * FROM low_stock_history
-                 WHERE YEAR(CONVERT_TZ(date,'+00:00','+05:30'))  = ?
-                 AND MONTH(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+                 WHERE YEAR(date)  = ?
+                 AND MONTH(date) = ?`;
           args = [date.getFullYear(), date.getMonth() + 1];
           break;
 
         default:
           sql  = `SELECT * FROM low_stock_history
-                  WHERE DATE(CONVERT_TZ(date,'+00:00','+05:30')) = ?`;
+                  WHERE DATE(date) = ?`;
           args = [date.toISOString().split('T')[0]];
       }
 
