@@ -1,10 +1,12 @@
 require('dotenv').config();
 const express = require('express');
+const cors = require('cors');
 const path = require('path');
 const { exec } = require('child_process');
 const cron = require('node-cron');
 const fs = require('fs').promises;
-const db = require('./db');  
+const dbUrl = process.env.DATABASE_URL;
+const db = require('./db')(dbUrl);  
 const lowStock = require('./lowStockChecker')(db);   
 const {
   checkLowStock,
@@ -22,6 +24,7 @@ const {
 } = require('./notificationService');
 
 const app = express();
+app.use(cors());
 const PORT = process.env.PORT || 3004;
 
 // Middleware to parse JSON
@@ -352,11 +355,11 @@ app.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`Opening ${url} in Chrome...`);
   
-  // Use the appropriate command based on the operating system
-  const command = `start chrome ${url}`;
+if (process.env.NODE_ENV !== 'production') {
   exec(command, (error) => {
     if (error) {
       console.error(`Failed to open Chrome: ${error}`);
     }
   });
+}
 });
