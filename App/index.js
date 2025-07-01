@@ -15,7 +15,7 @@ const shopify = shopifyApi({
   hostName:    hostName,
   apiVersion:  LATEST_API_VERSION,
   isEmbeddedApp: true,
-  sessionStorage: new shopify.session.MemorySessionStorage(),       
+  sessionStorage: new shopifyApi.session.MemorySessionStorage(),     
 });
 
 const express = require('express');
