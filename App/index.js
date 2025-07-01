@@ -1,4 +1,17 @@
 require('dotenv').config();
+
+const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
+
+const shopify = shopifyApi({
+  apiKey:      process.env.SHOPIFY_API_KEY,
+  apiSecretKey:process.env.SHOPIFY_API_SECRET,
+  scopes:      ['read_products','read_inventory'],
+  hostName:    process.env.HOST.replace(/^https?:\/\//, ''),
+  apiVersion:  LATEST_API_VERSION,
+  isEmbeddedApp: true,
+  sessionStorage: new shopify.session.MemorySessionStorage(),       
+});
+
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -37,6 +50,42 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// 1) kick‑off install/auth
+app.get('/auth', async (req, res) => {
+  const shop = req.query.shop;
+  if (!shop) return res.status(400).send('Missing shop parameter');
+
+  const authRoute = await shopify.auth.begin({
+    shop,
+    callbackPath: '/auth/callback',
+    isOnline: true,
+    req,
+    res,
+  });
+
+  return res.redirect(authRoute);
+});
+
+
+// 2) Shopify redirects back here
+app.get('/auth/callback', async (req, res) => {
+  try {
+    const session = await shopify.auth.validateAuthCallback(req, res, req.query);
+
+    // Save access token if needed (for API calls)
+    const accessToken = session.accessToken;
+    const shop = session.shop;
+
+    // Redirect to your frontend/dashboard
+    res.redirect(`/?shop=${shop}`);
+  } catch (e) {
+    console.error('OAuth error:', e);
+    res.status(500).send('Authentication failed');
+  }
+});
+
+
 
 // Route to check for low stock items
 app.get('/check-low-stock', async (req, res) => {
