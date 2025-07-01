@@ -6,6 +6,7 @@
  */
 
 module.exports = (db) => {
+  console.log('USE_MOCK_DATA:', process.env.USE_MOCK_DATA);
   const fetch = require('node-fetch');
 
   // ---- safeFetch helper ----------------------------------
