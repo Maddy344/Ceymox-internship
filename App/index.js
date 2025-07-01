@@ -25,7 +25,7 @@ const {
 
 const app = express();
 app.use(cors());
-const PORT = process.env.PORT || 3004;
+const PORT = process.env.PORT || 8080;
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -346,20 +346,9 @@ async function initScheduledTasks() {
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Dashboard available at http://localhost:${PORT}`);
+  console.log(`Dashboard deployed on Railway`);
   
   // Initialize scheduled tasks
   initScheduledTasks();
   
-  // Open in Chrome
-  const url = `http://localhost:${PORT}`;
-  console.log(`Opening ${url} in Chrome...`);
-  
-if (process.env.NODE_ENV !== 'production') {
-  exec(command, (error) => {
-    if (error) {
-      console.error(`Failed to open Chrome: ${error}`);
-    }
-  });
-}
 });
