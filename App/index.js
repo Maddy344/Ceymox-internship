@@ -6,11 +6,8 @@ const rawHost  = process.env.HOST || process.env.SHOPIFY_APP_URL;
 if (!rawHost) throw new Error('HOST environment variable is missing');
 const hostName = rawHost.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-const {
-   shopifyApi,
-   LATEST_API_VERSION,        
- } = require('@shopify/shopify-api');
-
+require('@shopify/shopify-api/adapters/node');  
+const { shopifyApi, LATEST_API_VERSION } = require('@shopify/shopify-api');
 const shopify = shopifyApi({
   apiKey:      process.env.SHOPIFY_API_KEY,
   apiSecretKey:process.env.SHOPIFY_API_SECRET,
