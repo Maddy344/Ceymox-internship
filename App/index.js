@@ -8,8 +8,7 @@ const hostName = rawHost.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
 const {
    shopifyApi,
-   LATEST_API_VERSION,
-   MemorySessionStorage,        
+   LATEST_API_VERSION,        
  } = require('@shopify/shopify-api');
 
 const shopify = shopifyApi({
@@ -18,8 +17,7 @@ const shopify = shopifyApi({
   scopes:      ['read_products','read_inventory'],
   hostName:    hostName,
   apiVersion:  LATEST_API_VERSION,
-  isEmbeddedApp: true,
-  sessionStorage: new MemorySessionStorage(),     
+  isEmbeddedApp: true,     
 });
 
 const express = require('express');
