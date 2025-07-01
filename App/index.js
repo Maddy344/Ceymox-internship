@@ -1,5 +1,7 @@
 require('dotenv').config();
 
+console.log('HOST var seen by Node:', JSON.stringify(process.env.HOST));
+
 const rawHost  = process.env.HOST || process.env.SHOPIFY_APP_URL;
 if (!rawHost) throw new Error('HOST environment variable is missing');
 const hostName = rawHost.replace(/^https?:\/\//, '').replace(/\/$/, '');
