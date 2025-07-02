@@ -56,7 +56,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// 1) kick‑off install/auth
+// /auth  ─────────────────────────────────────────────
 app.get('/auth', async (req, res) => {
   const shop = req.query.shop;
   if (!shop) return res.status(400).send('Missing shop parameter');
@@ -65,25 +65,25 @@ app.get('/auth', async (req, res) => {
     shop,
     callbackPath: '/auth/callback',
     isOnline: true,
-    req,
-    res,
+    rawRequest:  req,   // ← use rawRequest
+    rawResponse: res,   // ← use rawResponse
   });
 
-  return res.redirect(authRoute);
+  res.redirect(authRoute);
 });
 
-
-// 2) Shopify redirects back here
+// /auth/callback  ────────────────────────────────────
 app.get('/auth/callback', async (req, res) => {
   try {
-    const session = await shopify.auth.validateAuthCallback(req, res, req.query);
+    const { session } = await shopify.auth.validateAuthCallback({
+      rawRequest:  req,           // ← use rawRequest
+      rawResponse: res,           // ← use rawResponse
+      query:       req.query,
+    });
 
-    // Save access token if needed (for API calls)
-    const accessToken = session.accessToken;
-    const shop = session.shop;
-
-    // Redirect to your frontend/dashboard
-    res.redirect(`/?shop=${shop}`);
+    // access token & shop are now available
+    console.log('OAuth token:', session.accessToken);
+    res.redirect(`/?shop=${session.shop}`);
   } catch (e) {
     console.error('OAuth error:', e);
     res.status(500).send('Authentication failed');
