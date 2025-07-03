@@ -75,7 +75,7 @@ app.get('/auth', async (req, res) => {
 // /auth/callback  ────────────────────────────────────
 app.get('/auth/callback', async (req, res) => {
   try {
-    const { session } = await shopify.auth.validateAuthCallback({
+    const { session } = await shopify.auth.callback({
       rawRequest:  req,           // ← use rawRequest
       rawResponse: res,           // ← use rawResponse
       query:       req.query,
