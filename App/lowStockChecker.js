@@ -204,7 +204,7 @@ function filterLowStockItems(products, defaultT, customT) {
   if (!shop || !token) throw new Error('Missing Shopify creds');
 
   // Step 1: Fetch products
-  const productUrl = `https://${shop}/admin/api/2025-04/products.json?limit=250&fields=id,title,variants`;
+  const productUrl = `https://${shop}/admin/api/2025-07/products.json?limit=250&fields=id,title,variants`;
   const { products = [] } = await safeFetch(productUrl, token);
 
   // Step 2: Collect all inventory_item_ids
@@ -221,7 +221,7 @@ function filterLowStockItems(products, defaultT, customT) {
   for (let i = 0; i < inventoryItemIds.length; i += chunkSize) {
     const slice = inventoryItemIds.slice(i, i + chunkSize).join(',');
     const inventoryLevelsUrl =
-      `https://${shop}/admin/api/2025-04/inventory_levels.json?inventory_item_ids=${slice}`;
+      `https://${shop}/admin/api/2025-07/inventory_levels.json?inventory_item_ids=${slice}`;
 
     const { inventory_levels = [] } = await safeFetch(inventoryLevelsUrl, token);
     inventory_levels.forEach(lvl => {
@@ -248,7 +248,7 @@ async function fetchInventoryLevels(ids, shop, token) {
 
   for (let i = 0; i < ids.length; i += chunk) {
     const slice = ids.slice(i, i + chunk).join(',');
-    const url   = `https://${shop}/admin/api/2025-04/inventory_levels.json?inventory_item_ids=${slice}`;
+    const url   = `https://${shop}/admin/api/2025-07/inventory_levels.json?inventory_item_ids=${slice}`;
     const res   = await fetch(url, {
       headers: { 'X-Shopify-Access-Token': token, 'Content-Type': 'application/json' }
     });
